@@ -575,7 +575,7 @@ hermes-dispatch:
     pi -e ./apps/verifier/hermes-dispatch.ts -e ./apps/verifier/cross-agent.ts
 ```
 
-5. Register tools in persona frontmatter to match extension exports.
+1. Register tools in persona frontmatter to match extension exports.
 
 **Manual smoke test:**
 
@@ -617,7 +617,7 @@ just hermes-dispatch
 | Builder `sendUserMessage` followUp | Hermes `--resume <session_id>` via bridge |
 | JSONL slice `read` | `HERMES_TRANSCRIPT` + deterministic oracles on tool rows |
 
-4. **Evidence oracles** (satellite verifier runs per claim from `HERMES_CLAIMS`):
+1. **Evidence oracles** (satellite verifier runs per claim from `HERMES_CLAIMS`):
    - `tool_execution` claims: compare assertion to `embeddedEvidence` first (deterministic PASS/FAIL when possible)
    - `assistant_assertion` claims: must cite tool row or external oracle; never PASS on prose alone
    - `user_requirement` claims: mapped from dispatch `## Acceptance`; FAIL if no supporting tool evidence

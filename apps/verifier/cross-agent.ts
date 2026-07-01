@@ -1,28 +1,33 @@
 /**
- * Cross-Agent — Load commands, skills, and agents from other AI coding agents
+ * Cross-Agent — Load commands and agents from other AI coding agents
  *
  * Scans .claude/, .gemini/, .codex/ directories (project + global) for:
  *   commands/*.md  → registered as /name
- *   skills/        → listed as /skill:name (discovery only)
  *   agents/*.md    → listed as @name (discovery only)
+ *
+ * Skill discovery is intentionally NOT performed here. Skills are sourced
+ * exclusively from `~/.pi/agent/skills/` via pi's native skill loader
+ * (configured in `.pi/settings.json`). Cross-agent must not surface skills
+ * from `.claude/`, `.gemini/`, or `.codex/` — that would re-introduce the
+ * dual-source surface the project deliberately collapsed.
  *
  * Adapted verbatim from
  * /Users/indydevdan/Documents/projects/experimental/pi-vs-cc/extensions/cross-agent.ts
  * with two changes for use in the verifier project:
  *   1. The themeMap.ts dependency (synthwave palette defaults) is dropped —
- *      we only kept the parts that surface commands/skills to the builder.
+ *      we only kept the parts that surface commands to the builder.
  *   2. Loaded ONLY into the builder pi (via justfile `-e`); the verifier
  *      child intentionally does NOT load this — the verifier is read-only
  *      by architecture and must not be able to invoke arbitrary slash
- *      commands or skills from the user's .claude/ directory.
+ *      commands from the user's .claude/ directory.
  *
  * Usage: pi -e ./apps/verifier/cross-agent.ts (already wired into justfile recipes)
  */
 
 import type { ExtensionAPI } from "@mariozechner/pi-coding-agent";
-import { readdirSync, readFileSync, existsSync, statSync } from "node:fs";
-import { join, basename } from "node:path";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
+import { basename, join } from "node:path";
 
 interface Discovered {
   name: string;
@@ -33,7 +38,6 @@ interface Discovered {
 interface SourceGroup {
   source: string;
   commands: Discovered[];
-  skills: Discovered[];
   agents: Discovered[];
 }
 
@@ -81,37 +85,6 @@ function scanCommands(dir: string): Discovered[] {
   return items;
 }
 
-function scanSkills(dir: string): Discovered[] {
-  if (!existsSync(dir)) return [];
-  const items: Discovered[] = [];
-  try {
-    for (const entry of readdirSync(dir)) {
-      const skillFile = join(dir, entry, "SKILL.md");
-      const flatFile = join(dir, entry);
-      if (existsSync(skillFile) && statSync(skillFile).isFile()) {
-        const raw = readFileSync(skillFile, "utf-8");
-        const { description, body } = parseFrontmatter(raw);
-        items.push({
-          name: entry,
-          description: description || body.split("\n").find((l) => l.trim())?.trim() || "",
-          content: raw,
-        });
-      } else if (entry.endsWith(".md") && statSync(flatFile).isFile()) {
-        const raw = readFileSync(flatFile, "utf-8");
-        const { description, body } = parseFrontmatter(raw);
-        items.push({
-          name: basename(entry, ".md"),
-          description: description || body.split("\n").find((l) => l.trim())?.trim() || "",
-          content: raw,
-        });
-      }
-    }
-  } catch {
-    // ignore
-  }
-  return items;
-}
-
 function scanAgents(dir: string): Discovered[] {
   if (!existsSync(dir)) return [];
   const items: Discovered[] = [];
@@ -152,11 +125,10 @@ export default function (pi: ExtensionAPI): void {
       [join(home, `.${p}`), `~/.${p}`],
     ] as const) {
       const commands = scanCommands(join(dir, "commands"));
-      const skills = scanSkills(join(dir, "skills"));
       const agents = scanAgents(join(dir, "agents"));
 
-      if (commands.length || skills.length || agents.length) {
-        groups.push({ source: label, commands, skills, agents });
+      if (commands.length || agents.length) {
+        groups.push({ source: label, commands, agents });
       }
     }
   }
@@ -164,10 +136,12 @@ export default function (pi: ExtensionAPI): void {
   // Also scan .pi/agents/ (pi-vs-cc pattern)
   const localAgents = scanAgents(join(cwd, ".pi", "agents"));
   if (localAgents.length) {
-    groups.push({ source: ".pi/agents", commands: [], skills: [], agents: localAgents });
+    groups.push({ source: ".pi/agents", commands: [], agents: localAgents });
   }
 
-  // Register commands + skills once — never re-registered on /new
+  // Register commands once — never re-registered on /new. Skills are NOT
+  // registered here; pi's native skill loader (driven by `.pi/settings.json`'s
+  // `skills` array) is the single source of truth for `/skill:*` commands.
   const seenCmds = new Set<string>();
   for (const g of groups) {
     for (const cmd of g.commands) {
@@ -180,22 +154,10 @@ export default function (pi: ExtensionAPI): void {
         },
       });
     }
-    for (const skill of g.skills) {
-      const cmdName = `skill:${skill.name}`;
-      if (seenCmds.has(cmdName)) continue;
-      seenCmds.add(cmdName);
-      pi.registerCommand(cmdName, {
-        description: `[${g.source}] ${skill.description}`.slice(0, 120),
-        handler: async (args) => {
-          const task = args?.trim();
-          pi.sendUserMessage(task ? `${skill.content}\n\nTask: ${task}` : skill.content);
-        },
-      });
-    }
   }
 
   // Boot notification suppressed — the user explicitly asked to silence the
-  // "loaded N commands / M skills" startup display. Registration above runs
-  // synchronously at extension load, so commands/skills are still wired up;
-  // we just don't surface the discovery banner.
+  // "loaded N commands" startup display. Registration above runs synchronously
+  // at extension load, so commands are still wired up; we just don't surface
+  // the discovery banner.
 }

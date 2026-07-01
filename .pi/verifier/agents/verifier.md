@@ -2,7 +2,7 @@
 name: verifier
 description: Generic verifier — decomposes the user's request into atomic claims, validates each independently, reports. Read-only tool surface; no write or edit. Use this when no domain-specific persona fits yet.
 tools: read, grep, find, ls, bash, verifier_prompt
-model: openai/gpt-5.5
+model: openai-codex/gpt-5.5
 domain: generic
 max_loops: 3
 ---

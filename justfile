@@ -33,3 +33,11 @@ clean:
     -rm -f /tmp/pi-verifier/*.sock
     -rm -f .pi/state/verifier-*.sock.ref
     @echo "clean: stale verifier state removed"
+
+# Vendor this verifier into another local repo.
+install-local target:
+    @scripts/install-local.sh "{{target}}"
+
+# Run a vendored verifier from another local repo after install-local.
+run-local target:
+    @cd "{{target}}" && just -f justfile.verifier v

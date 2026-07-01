@@ -14,7 +14,7 @@ Create a detailed implementation plan based on the user's requirements provided 
 USER_PROMPT: $1
 ORCHESTRATION_PROMPT: $2 - (Optional) Guidance for team assembly, task structure, and execution strategy
 PLAN_OUTPUT_DIRECTORY: `specs/`
-TEAM_MEMBERS: `.claude/agents/team/*.md`
+TEAM_MEMBERS: `~/.claude/agents/team/*.md`
 GENERAL_PURPOSE_AGENT: `general-purpose`
 
 ## Instructions

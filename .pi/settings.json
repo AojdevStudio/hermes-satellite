@@ -1,4 +1,4 @@
 {
-  "skills": ["~/.claude/skills"],
+  "skills": ["~/.pi/agent/skills"],
   "sessionDir": "~/.pi/agent/sessions"
 }

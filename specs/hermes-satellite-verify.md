@@ -332,8 +332,9 @@ interface TaskCostSnapshot {
   promptTokens?: number;
   completionTokens?: number;
   totalTokens?: number;
-  estimatedUsd?: number;       // best-effort from model pricing table or Hermes accounting
-  expensiveToolsUsed?: string[]; // e.g. ["moa", "mixture_of_agents"]
+  estimatedUsd?: number | null; // null by default when no pricing table is configured; a wrong number is worse than null. Prefer provider accounting over a stale local table. Pin the pricing table location + effective date wherever one is used.
+  perModelBreakdown?: Array<{ model: string; promptTokens: number; completionTokens: number; estimatedUsd?: number | null }>; // REQUIRED when expensiveToolsUsed includes MoA: a scalar model + estimate cannot price aggregator + N workers
+  expensiveToolsUsed?: string[]; // enumerate the REAL Hermes MoA/delegation tool names from a captured export fixture; do not ship substring guesses like ["moa", "mixture_of_agents"]
   source: "state.db" | "hermes_usage_api" | "estimated";
   capturedAt: string;        // ISO8601
 }
@@ -519,7 +520,13 @@ domain: hermes-satellite
 max_loops: 3
 ```
 
-**`satellite-verifier.md` persona:** fork of `verifier.md` — same confidence ladder and `## Report` block; replace `verifier_prompt` with `hermes_respond`. **Call `hermes_decompose` first** — do not manually re-parse transcript. Oracle each claim in the returned checklist; mark PASS/FAIL/UNSURE per row in the Report.
+**`satellite-verifier.md` persona:** fork of `verifier.md` with the same confidence ladder and `## Report` block, but `verifier_prompt` is replaced by `hermes_respond`. **Call `hermes_decompose` first**; do not manually re-parse the transcript. Oracle each claim in the returned checklist; mark PASS/FAIL/UNSURE per row in the Report.
+
+**Launch path (normative).** The satellite verifier is spawned as an in-session MCP client, NOT via `spawnVerifierChild` / the local tmux launcher. `normalizeToolsList` (`apps/verifier/_shared/launcher.ts:414-421`) unconditionally appends `verifier_prompt`, a unix-socket tool that is dead off-machine; reusing that path would inject the wrong correction tool and can filter out `hermes_respond`. This is a conditional trap, not an unconditional break: it fires only if a Pi "full extension stack" satellite verifier is spawned through that launcher. If that ever happens, the launcher must append `hermes_respond` (not `verifier_prompt`), verified in the Phase-5 gate.
+
+**Persona body templating (normative).** The fork MUST strip all local-only slots from the body (`<BUILDER_SESSION_ID>`, `<BUILDER_SESSION_FILE>`, `<SOCKET_PATH>`), because `templateBody` (`apps/verifier/_shared/frontmatter.ts:90-101`) leaves unmatched `<UPPER_SNAKE>` slots as LITERAL text in the system prompt. Name the component that renders the satellite persona body and its variables, and give every `verify_on_satellite_complete.md` variable a non-empty default so an absent value never leaks a raw placeholder into the prompt.
+
+**Read-only enforcement (normative).** For in-session Claude/Codex verifiers the persona `tools:` field is enforced by nothing (unlike the Pi `--tools` path). Run the in-session verifier on a tool-allowlisted MCP session that omits write/edit, OR add a post-hoc check that the verify transcript contains no mutating tool calls. Do not call this path read-only without one of those.
 
 **Dispatch persona requirement:** prompts must include a `## Acceptance` section (bulleted, testable) so `hermes_decompose` can emit `user_requirement` atoms without LLM guesswork.
 
@@ -799,17 +806,17 @@ Encode in `apps/verifier/hermes/poll.ts` — do not rely on the LLM to sleep cor
 
 ---
 
-## Confidence ladder (reuse unchanged)
+## Confidence ladder (reuse; STATUS mapping made explicit)
 
-From `.pi/verifier/agents/verifier.md`:
+From `.pi/verifier/agents/verifier.md`. The `STATUS` column is added because `parseReport` (`apps/verifier/verifier.ts:1035-1037`) REQUIRES a `STATUS:` line whose value is one of `verified | failed | unsure`, or it discards the entire Report. A satellite persona that emits only `CONFIDENCE` loses its report silently. Every satellite Report MUST include both lines.
 
-| CONFIDENCE | Meaning | Action |
-|------------|---------|--------|
-| PERFECT | Every claim verified | Report done to user |
-| VERIFIED | All checked passed; minor gaps | Report done |
-| PARTIAL | Significant unverifiable gaps | Report + note gaps |
-| FEEDBACK | Failures found; `hermes_respond` sent | Poll + re-verify |
-| FAILED | Cannot verify; escalate | Human |
+| CONFIDENCE | STATUS (required line) | Meaning | Action |
+|------------|------------------------|---------|--------|
+| PERFECT | verified | Every claim verified | Report done to user |
+| VERIFIED | verified | All checked passed; minor gaps | Report done |
+| PARTIAL | verified | No failures, but significant unverifiable gaps | Report + note gaps |
+| FEEDBACK | failed | Failures found; `hermes_respond` sent | Poll + re-verify |
+| FAILED | unsure | Cannot verify; escalate | Human |
 
 ---
 

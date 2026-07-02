@@ -1,11 +1,13 @@
 {
-  "name": "the-verifier-agent",
+  "name": "hermes-satellite",
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Pi Verifier Agent — read-only second agent that verifies the builder's claims and prompts back with concrete corrective feedback.",
+  "packageManager": "pnpm@9.15.9",
+  "description": "Remote Hermes execution and satellite verification over authenticated MCP.",
   "scripts": {
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "tsc -p tsconfig.json && node --test dist/hermes/decompose.test.js"
   },
   "devDependencies": {
     "@mariozechner/pi-coding-agent": "^0.70.5",

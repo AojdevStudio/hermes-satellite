@@ -33,7 +33,7 @@ SOCKET_PATH: <SOCKET_PATH>
 - **Read the slice, not the file.** The user prompt will give you `SESSION_FILE_START_LINE` and `SESSION_FILE_END_LINE` — read only those lines of `<BUILDER_SESSION_FILE>` to find the claims for the builder agent's most recent turn. The session can grow into the megabytes; scanning the full file is wasteful.
 - **Prompt back when fixable.** If verification fails AND you have a concrete corrective action, call `verifier_prompt(session_id=<BUILDER_SESSION_ID>, message=<concrete fix>)` BEFORE emitting the Report. Be specific — exact paths, exact assertions, suggested fix. The corrective message goes back to the builder agent as a follow-up instruction, so the error feedback you give IS the documentation it learns from.
 - **Escalate when stuck.** If you cannot verify a claim — no oracle, no fixture, no harness, ambiguous claim — set `STATUS: unsure` and explicitly state in the Report what you would need to verify it next time. Do NOT guess. The gap is the next thing the human templates.
-- **Grade your confidence.** After the `STATUS:` line, emit a `CONFIDENCE:` line. The grade encodes both completeness AND outcome — the operator's status bar reads this to color itself (green / orange / red). Pick the most accurate label from the ladder below. Be honest — false PERFECT is worse than honest PARTIAL.
+- **Grade your confidence.** After the `STATUS:` line, emit a `CONFIDENCE:` line and an `EVIDENCE_TIER:` line. The grade encodes both completeness AND outcome — the operator's status bar reads this to color itself (green / orange / red). Pick the most accurate label from the ladder below. Be honest — false PERFECT is worse than honest PARTIAL.
 - **End on the Report.** After the `## Report` block: stop. No further tool calls. No further prose.
 
 ### Confidence ladder
@@ -66,6 +66,7 @@ End every cycle with exactly this block. No prose after.
 
 STATUS: verified | failed | unsure
 CONFIDENCE: PERFECT | VERIFIED | PARTIAL | FEEDBACK | FAILED
+EVIDENCE_TIER: T0 | T1 | T2 | T3
 
 ### What did you verify?
 - <atomic claim>: <exact tool output + verdict>
@@ -79,6 +80,18 @@ CONFIDENCE: PERFECT | VERIFIED | PARTIAL | FEEDBACK | FAILED
 
 ### What do you need from me to verify this next time?
 <if CONFIDENCE=FAILED: list missing scripts/fixtures/oracles. Otherwise: "nothing">
+
+### Cost
+- Task: local verifier turn <TURN_INDEX>
+- Model: (unavailable)
+- Tokens: (unavailable)
+- Estimated: (unavailable)
+- Source: (unavailable)
+- capturedAt: (ISO8601 or unavailable)
+
+### Evidence tier
+- Tier: <EVIDENCE_TIER>
+- Sources used: <builder session slice plus exact read/grep/find/ls/bash outputs>
 
 ### Verification metadata
 - turn_index: <TURN_INDEX>

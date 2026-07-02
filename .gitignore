@@ -1,34 +1,64 @@
-# Environment
+# Secrets and local environment
 .env
 .env.*
 !.env.example
 !.env.sample
 .envrc
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.cert
+*.secret
+secrets/
 
-# Node / Bun
+# macOS / editor noise
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+._*
+*.swp
+*.swo
+*~
+.vscode/
+.idea/
+
+# Logs and transient runtime output
+logs/
+*.log
+*.log.*
+tmp/
+temp/
+.cache/
+
+# Node / package-manager installs
 node_modules/
+.pnpm-store/
+.npm/
+.yarn/
+.pnp.*
+.bun/
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
-.npm
-.yarn/
-.pnp.*
-.bun/
 bun.lockb
 
 # Build output
+/dist/
 dist/
 build/
 out/
 .next/
 .nuxt/
 .turbo/
-.cache/
 .parcel-cache/
 .vite/
 .svelte-kit/
+*.tsbuildinfo
 
 # Python
 __pycache__/
@@ -47,18 +77,14 @@ MANIFEST
 pip-log.txt
 pip-delete-this-directory.txt
 
-# Virtual environments
+# Python virtualenvs / tools
 .venv/
 venv/
 env/
 ENV/
 .python-version
-
-# Astral uv
 .uv/
 uv.lock
-
-# Ruff / mypy / pytest
 .ruff_cache/
 .mypy_cache/
 .pytest_cache/
@@ -71,26 +97,34 @@ coverage.xml
 *.cover
 .hypothesis/
 
-# IDE / editors
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-.DS_Store
-
-# Logs
-logs/
-*.log
-
-# Misc
-tmp/
-temp/
-*.tsbuildinfo
-
-# Verifier runtime artifacts
+# Pi verifier runtime artifacts
 .pi/state/
 .pi/agent-sessions/
 /tmp/pi-verifier/
 
+# Hermes / bridge local runtime artifacts
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+async_bridge.db
+hermes-async-bridge-transcripts/
+
+# Local agent indexes and generated analysis caches
+.codegraph/
+.codebase-memory/
+.auto/log.jsonl
+.auto/tmp/
+.auto/cache/
+
+# Vendored reference docs copied from upstream tools; regenerate or link instead
+ai_docs/
 deep_docs/
+
+# Generated media. Keep final curated assets outside generated/.
+images/generated/
+*.tmp.png
+*.tmp.jpg
+*.tmp.jpeg
+*.tmp.svg

@@ -277,12 +277,14 @@ The satellite verifier LLM should **not** re-parse raw transcript structure ever
 ```typescript
 interface AtomicClaim {
   id: string;
-  kind: "tool_execution" | "assistant_assertion" | "user_requirement";
+  kind: "tool_execution" | "assistant_assertion" | "user_requirement" | "structured_assistant_claim";
   source: { messageIndex: number; toolName?: string };
   text: string;
   /** Present for tool_execution — the tool result row from export */
   embeddedEvidence?: string;
   suggestedOracle?: "tool_result" | "file_path_in_result" | "git_in_result" | "manual";
+  /** Set only when kind==="structured_assistant_claim": the forced-schema mechanism that produced it. Absent => treat as assistant_assertion (prompt-only, not canonical). */
+  structuredOutputMechanism?: "response_format" | "strict_tool" | "verify_claims_tool" | "plugin_complete_structured";
 }
 ```
 
@@ -291,6 +293,7 @@ interface AtomicClaim {
 1. (Deterministic) Every `tool_call` + matching `tool_result` → one `tool_execution` claim with `embeddedEvidence`. `embeddedEvidence` MUST be sourced only from the T2 export `tool_result` row, never from `hermes_result` final text (which is fabricable T0 prose). This closes the evidence-laundering path.
 2. (Advisory, best-effort) Final assistant message → extract assertion sentences (patterns + bullet lines) → `assistant_assertion` claims, cross-linked to nearest preceding tool rows by index. `assistant_assertion` atoms may NOT raise confidence and MUST NOT count toward PERFECT completeness unless each is linked to a `tool_execution` oracle.
 3. (Deterministic) Original dispatch prompt → if structured with `## Acceptance` (required in dispatch persona), parse bullets → `user_requirement` claims.
+4. (Candidate-only) A schema-shaped `verify_claims` block in the final assistant output is NOT canonical. Confirmed on the live Mac mini: `hermes chat -q` exposes no `--json`/`--schema` flag and the API server does not forward `response_format`/`output_config` into the agent final response; only `agent/plugin_llm.py:complete_structured()` can force a schema, and that is a host/plugin path, not the normal final-response path. Parse and schema-validate such a block, but cap confidence at <= 0.55 as a `structured_assistant_claim` and never let it satisfy `user_requirement` completeness or PERFECT, UNLESS the transcript proves a forced mechanism (provider `response_format`, strict tool use, a dedicated `verify_claims` tool call recorded in T2, or a bridge-owned `plugin_llm.complete_structured` call). The bridge MUST record `structuredOutputMechanism`; absent that field, classify as `assistant_assertion`.
 
 **Where it lives (ownership decided):**
 
@@ -310,12 +313,12 @@ The $47 MoA incident showed the gap: **verification without cost visibility** st
 
 | Store | What it has today | Gap |
 |-------|-------------------|-----|
-| **`~/.hermes/state.db`** | Session metadata: model, prompt/completion token counters, timestamps | Not linked to MCP `task_id`; not returned to remote clients |
+| **`~/.hermes/state.db`** | Session metadata + **computed cost**: model, prompt/completion token counters, timestamps, plus `estimated_cost_usd` / `cost_source` / `billing_provider` / `billing_mode` / `pricing_version` (confirmed on live state.db) | Not linked to MCP `task_id`; not returned to remote clients |
 | **`async_bridge.db`** | Prompt, status, final text, `session_id` | **No** token/cost/model columns |
 | **Remote MCP client** | Sees `hermes_result` paragraph only | No spend summary |
 | **Verify Report** | CONFIDENCE / STATUS | No cost line item |
 
-Hermes already counts tokens internally. The work is **bridging session counters → task row → MCP payload → verify Report**.
+Hermes already **computes cost**, not just tokens: the `sessions` row carries `estimated_cost_usd`, `cost_source`, `billing_provider`, `billing_mode`, and `pricing_version` (confirmed on the live Mac mini state.db). Do NOT build a local pricing table; read these columns. The work is **bridging those columns → task row → MCP payload → verify Report**.
 
 ### Target: `TaskCostSnapshot` (normative shape)
 
@@ -333,8 +336,15 @@ interface TaskCostSnapshot {
   completionTokens?: number;
   totalTokens?: number;
   estimatedUsd?: number | null; // null by default when no pricing table is configured; a wrong number is worse than null. Prefer provider accounting over a stale local table. Pin the pricing table location + effective date wherever one is used.
-  perModelBreakdown?: Array<{ model: string; promptTokens: number; completionTokens: number; estimatedUsd?: number | null }>; // REQUIRED when expensiveToolsUsed includes MoA: a scalar model + estimate cannot price aggregator + N workers
-  expensiveToolsUsed?: string[]; // enumerate the REAL Hermes MoA/delegation tool names from a captured export fixture; do not ship substring guesses like ["moa", "mixture_of_agents"]
+  perModelBreakdown?: Array<{ model: string; promptTokens: number; completionTokens: number; estimatedUsd?: number | null }>; // REQUIRED when expensiveToolsUsed includes delegate_task/MoA: a scalar model + estimate cannot price an aggregator + N workers
+  expensiveToolsUsed?: string[]; // CONFIRMED (live state.db + source): delegation appears as "delegate_task" in assistant tool_calls[].function.name and in tool_result tool_name. There is NO "moa" tool name -- MoA is a virtual provider detected via session metadata (billing_provider="moa" / billing_base_url="moa://local"), never a tool name.
+  /** From state.db sessions row: cost_source. "provider_models_api" = real $, "none" = subscription-included/unpriced (a blind spot, see costUnreconciled). */
+  costSource?: "provider_models_api" | "none" | "estimated" | null;
+  billingProvider?: string; // state.db billing_provider, e.g. "openrouter" | "moa"
+  billingMode?: string;     // state.db billing_mode, e.g. "subscription_included"
+  pricingVersion?: string;  // state.db pricing_version
+  /** True when cost is a known blind spot: MoA moa://local rows report estimated_cost_usd=0.0 / cost_source=none despite real upstream spend. Surface as "unreconciled", never authoritative $0. */
+  costUnreconciled?: boolean;
   source: "state.db" | "hermes_usage_api" | "estimated";
   capturedAt: string;        // ISO8601
 }
@@ -355,6 +365,16 @@ interface TaskCostSnapshot {
 
 Capture **on terminal status** (after subprocess exit): bridge reads `state.db` for `session_id`, inserts row, attaches snapshot to `hermes_result` and callback.
 
+### MoA cost blind spot (normative)
+
+MoA runs are a confirmed cost blind spot. MoA executes as a **virtual provider** (`billing_provider=moa`, `billing_base_url=moa://local`, `billing_mode=subscription_included`), and session accounting prices `agent.model`/`agent.provider` (= `moa`/`default`), NOT the resolved aggregator slot that actually calls OpenRouter. So the parent row reports `estimated_cost_usd=0.0` with `cost_source=none` even when the aggregator spent real dollars upstream -- exactly how the $47 stayed invisible. Confirmed against the live Mac mini state.db (session `20260630_081522_c6e18380`) and source (`agent/usage_pricing.py`, `agent/conversation_loop.py`).
+
+Rules:
+
+- A snapshot with `costSource="none"` + `billingProvider="moa"` + `billingMode="subscription_included"` MUST be surfaced as **`unreconciled`**, never as authoritative `$0`.
+- `moa.reference` / `moa.aggregating` events are display-only and are NOT persisted in T2 exports; do not expect to reconstruct per-model MoA spend from the transcript. Durable MoA traces exist only if `moa.save_traces` is enabled (off by default) at `<hermes_home>/moa-traces/<session_id>.jsonl`.
+- Exact MoA upstream spend is recoverable only from the OpenRouter dashboard/API, not locally. Treat the OpenRouter account guardrail as the hard backstop.
+
 ### MCP surface
 
 | Tool / field | Behavior |
@@ -362,7 +382,7 @@ Capture **on terminal status** (after subprocess exit): bridge reads `state.db` 
 | **`hermes_result`** | Include `cost: TaskCostSnapshot` block (not prose-only) |
 | **`hermes_task_cost(task_id)`** | Query latest or full history for task + respond loops |
 | **Callback payload** | Add `cost: TaskCostSnapshot` alongside `transcriptPath` |
-| **`hermes_decompose`** | Optionally flag claims where `expensiveToolsUsed` includes `moa` (informational, not block) |
+| **`hermes_decompose`** | Flag delegation/MoA: `delegate_task` calls (from `tool_calls[].function.name` / `tool_name`) and MoA sessions (via `billing_provider=moa` metadata, not a tool name); informational, not block |
 
 ### Verify loop integration
 
@@ -411,7 +431,7 @@ This plan is designed for a **three-agent build + dual verify** workflow:
 └──────────────────┘     └──────────────────┘     └──────────────────┘
         │                         │                         │
         │  files, stubs,          │  extensions,            │  independent
-        │  personas, specs        │  justfile, npm,         │  read-only review
+        │  personas, specs        │  justfile, pnpm,        │  read-only review
         │                         │  integration            │  + smoke tests
         ▼                         ▼                         ▼
    specs/ + empty            working `just              both must pass
@@ -426,7 +446,7 @@ This plan is designed for a **three-agent build + dual verify** workflow:
 
 ### Role: Pi coding agent (wiring pass)
 
-**Delivers:** Working Pi extensions that compile and run; MCP client calls against live bridge; poll loop encoded in extension code (not LLM-improvised); verifier trigger on Hermes completion; `npm run typecheck` clean.
+**Delivers:** Working Pi extensions that compile and run; MCP client calls against live bridge; poll loop encoded in extension code (not LLM-improvised); verifier trigger on Hermes completion; `pnpm run typecheck` clean.
 
 **Authority for Pi APIs:** use live Pi coding agent documentation (`pi` CLI / upstream docs), not vendored copies in this repo.
 
@@ -650,9 +670,9 @@ just hermes-dispatch
 
 | Task | Detail |
 |------|--------|
-| **Transport** | Native HTTP MCP in Python; remove supergateway + stdio |
-| **Auth** | Bearer token on every request; reject unauthenticated |
-| **Bind** | Tailscale IP (+ LAN when home); not unauthenticated `0.0.0.0` |
+| **Transport** | Native Streamable HTTP MCP in Python; remove `supergateway` + stdio. Confirmed: installed `mcp 1.26.0` already exposes `FastMCP(token_verifier=..., auth=AuthSettings(...), host, port, streamable_http_path)` and a static bearer verifier instantiates on the live venv. Pin `mcp>=1.26,<2`. See `.auto/research/hermes-phase4-blockers.md` section 1. |
+| **Auth** | Bearer via SDK `token_verifier` + `AuthSettings` (not an ad-hoc header hack); reject unauthenticated. **Verified 2026-07-02:** MBP13 no-token initialize returned 401, bearer-token initialize returned 200 from the native FastMCP server. `/healthz` and custom routes may be intentionally unauthenticated and are NOT proof that MCP auth protects tools. |
+| **Bind** | Tailscale IP `<bridge-host>` (+ LAN `<bridge-host>` when home); never blind `0.0.0.0`. TLS optional on Tailscale/private LAN, required at any public/Traefik edge. |
 | **Observability** | SQLite tables: `mcp_events`, `task_runs`, **`task_costs`** (see [Cost telemetry](#cost-telemetry)) |
 | **Cost capture** | On terminal: read session token counters from `state.db`; attach to `hermes_result` + callback |
 | **Transcript bridge** | `hermes_transcript` MCP tool: export from `state.db` post-task; optional link to `session_id` in callback |
@@ -680,13 +700,17 @@ just hermes-dispatch
     "taskId": "uuid",
     "hermesSessionId": "uuid",
     "loopIndex": 0,
-    "provider": "openrouter",
-    "model": "anthropic/claude-opus-4.8",
-    "promptTokens": 12000,
-    "completionTokens": 3400,
-    "totalTokens": 15400,
-    "estimatedUsd": 47.2,
-    "expensiveToolsUsed": ["moa"],
+    "provider": "moa",
+    "model": "default",
+    "promptTokens": 790772,
+    "completionTokens": 35763,
+    "totalTokens": 826535,
+    "estimatedUsd": null,
+    "costSource": "none",
+    "billingProvider": "moa",
+    "billingMode": "subscription_included",
+    "costUnreconciled": true,
+    "expensiveToolsUsed": ["delegate_task"],
     "source": "state.db",
     "capturedAt": "2026-07-01T12:00:00Z"
   }
@@ -708,7 +732,7 @@ just hermes-dispatch
 ```markdown
 ## Verification Report — <agent name> — Phase <N>
 
-- [ ] typecheck pass (`cd apps/verifier && npm run typecheck`)
+- [ ] typecheck pass (`cd apps/verifier && pnpm run typecheck`)
 - [ ] poll constants 30 / 120 / 600 enforced in code
 - [ ] hermes_result called once on terminal status (code path review)
 - [ ] dispatch persona has no write/edit
@@ -785,8 +809,8 @@ HERMES_CALLBACK_SECRET=
 | | Today | Target |
 |---|-------|--------|
 | Endpoint | `http://<bridge-host>:8081/mcp` | Tailscale + auth |
-| Wrapper | supergateway → stdio | native HTTP |
-| Auth | none | Bearer required |
+| Wrapper | native Streamable HTTP (`mcp` SDK `FastMCP` + `token_verifier`) | native Streamable HTTP (`mcp` SDK `FastMCP` + `token_verifier`) |
+| Auth | Bearer required; verified no-token 401 / bearer 200 from MBP13 | Bearer required |
 
 Paths: see [`hermes-mcp.md`](../hermes-mcp.md).
 
@@ -803,6 +827,22 @@ Implementations **must** follow [`hermes-polling.md`](../hermes-polling.md):
 | `MAX_WAIT_SEC` | 600 |
 
 Encode in `apps/verifier/hermes/poll.ts` — do not rely on the LLM to sleep correctly.
+
+### Bridge failure envelope (normative, observed)
+
+Captured from the live async bridge; the poll loop and result parser MUST handle these, not only the happy path:
+
+| Mode | Shape |
+|------|-------|
+| Hard timeout | After 600s the bridge kills the task: `status="failed"`, `result=""`, `error="Task timed out after 600s"`, `session_id=null`. Large multi-part prompts hit this; keep dispatched work small and scoped. |
+| Upstream auth fail (fast) | ~3-5s: `status="failed"`, `error="Error: HTTP 401: User not found."` (billing/user rejection, e.g. drained OpenRouter credits), often with `result="Warning: Unknown toolsets: moa"`. |
+| Success | `status="completed"` with a real top-level `session_id`. |
+
+Contract consequences:
+
+- A **failed** task returns top-level `session_id=null`; you CANNOT `hermes_respond` to a failure. (The fast-fail mode embeds a session id inside the `error` string; the timeout mode embeds none.) The correction loop MUST treat `failed` as terminal-without-resume, not retry blindly.
+- `result` and `error` are independent fields: a failed task can carry a non-empty `result` (e.g. the `moa` warning) AND an `error`. Parse both.
+- Only `completed` tasks yield a resumable `session_id`.
 
 ---
 

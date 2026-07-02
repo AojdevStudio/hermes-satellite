@@ -5,11 +5,11 @@ usage() {
   cat <<'EOF'
 Usage: scripts/install-local.sh <target-repo>
 
-Copies the Pi Verifier Agent into another local repo as vendored files.
+Copies the legacy local Pi verifier harness into another local repo as vendored files.
 
 Env:
   FORCE=1     overwrite same-name vendored files in the target repo
-  SKIP_NPM=1  copy files but skip npm install
+  SKIP_PNPM=1 copy files but skip pnpm install
 EOF
 }
 
@@ -112,15 +112,15 @@ clean-verifier:
     @echo "clean: stale verifier state removed"
 JUST_EOF
 
-if [[ "${SKIP_NPM:-0}" != "1" ]]; then
-  (cd "$TARGET/apps/verifier" && npm install)
+if [[ "${SKIP_PNPM:-0}" != "1" ]]; then
+  (cd "$TARGET/apps/verifier" && pnpm install)
 else
-  echo "install-local: SKIP_NPM=1, skipped npm install"
+  echo "install-local: SKIP_PNPM=1, skipped pnpm install"
 fi
 
 cat <<EOF
 
-Pi Verifier Agent vendored into:
+Legacy Pi verifier harness vendored into:
   $TARGET
 
 Run it from that repo with:

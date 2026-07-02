@@ -1,29 +1,32 @@
 # Hermes MCP bridge — architecture and gaps
 
-The custom MCP bridge lives mostly under your Hermes home, not in the homelab repo. It is documented reasonably well as a Hermes skill plus a standalone doc, but the current implementation is still “prototype/service” quality for observability and the closed-loop verification flow we want next.
+The canonical Phase 4 bridge source now lives in this repo at `apps/hermes-async-bridge/`. The Mac mini launchd service has been cut over from `supergateway` to the native Python Streamable HTTP bridge bound to Tailscale `<bridge-host>:8081`. Treat the repo copy as source of truth for the native HTTP/auth implementation.
 
 ---
 
 ## Documentation
 
-The custom Hermes MCP bridge script:
+Canonical repo bridge script:
 
 ```text
-/Users/<user>/.hermes/scripts/hermes_async_bridge.py
+apps/hermes-async-bridge/hermes_async_bridge.py
 ```
 
-It is currently running via:
+Legacy/deployed script path: `/Users/<user>/.hermes/scripts/hermes_async_bridge.py`.
+
+It is currently launched via wrapper script:
 
 ```bash
-/Users/<user>/.hermes/hermes-agent/venv/bin/python3 \
-  /Users/<user>/.hermes/scripts/hermes_async_bridge.py
+/Users/<user>/.hermes/scripts/run_hermes_async_bridge.sh
 ```
 
-The HTTP bridge is exposed through **supergateway** on **port 8081** (`http://<bridge-host>:8081/mcp`).
+The HTTP bridge is exposed directly by native Python FastMCP on **Tailscale port 8081** (`http://<bridge-host>:8081/mcp`). Bearer auth is configured in the Python SDK and has been proven from another tailnet node: no token returns HTTP 401, bearer token returns HTTP 200 with a clean MCP initialize. No `supergateway` layer should be in front.
 
 Standalone doc (on the Mac mini): `/Users/<user>/.hermes/docs/hermes-async-bridge.md`
 
 Related: [`hermes-polling.md`](./hermes-polling.md) — client-side poll algorithm after `hermes_submit`.
+
+Main-machine install handoff: [`specs/hermes-mcp-main-machine-install.md`](./specs/hermes-mcp-main-machine-install.md).
 
 ---
 
@@ -31,7 +34,9 @@ Related: [`hermes-polling.md`](./hermes-polling.md) — client-side poll algorit
 
 | Role | Path |
 |------|------|
-| Active MCP server script | `/Users/<user>/.hermes/scripts/hermes_async_bridge.py` |
+| Canonical repo script | `apps/hermes-async-bridge/hermes_async_bridge.py` |
+| Active MCP server script (legacy/deploy symlink target) | `/Users/<user>/.hermes/scripts/hermes_async_bridge.py` |
+| launchd wrapper | `/Users/<user>/.hermes/scripts/run_hermes_async_bridge.sh` |
 | Python interpreter (runtime) | `/Users/<user>/.hermes/hermes-agent/venv/bin/python3` |
 | SQLite task DB | `/Users/<user>/.hermes/async_bridge.db` |
 | launchd service | `/Users/<user>/Library/LaunchAgents/<launchd-label>.plist` |
@@ -41,8 +46,9 @@ Related: [`hermes-polling.md`](./hermes-polling.md) — client-side poll algorit
 | Hermes skill docs | `/Users/<user>/.hermes/skills/autonomous-ai-agents/hermes-mcp-bridge/SKILL.md` |
 | Skill architecture ref | `/Users/<user>/.hermes/skills/autonomous-ai-agents/hermes-mcp-bridge/references/async-bridge-architecture.md` |
 | Skill’s copy of the script | `/Users/<user>/.hermes/skills/autonomous-ai-agents/hermes-mcp-bridge/scripts/hermes_async_bridge.py` |
+| Runtime token cache | `/Users/<user>/.hermes/secrets/hermes_async_bridge_token` (`0600`, mirrored to BWS as `HERMES_ASYNC_BRIDGE_TOKEN`) |
 
-**Note:** The active script and skill-copy script are not byte-identical right now.
+**Note:** The active runtime path is the wrapper + symlink to the repo script. The skill-copy script may lag; update the skill docs/scripts after deployment verification.
 
 ---
 
@@ -75,7 +81,7 @@ The client doesn’t matter as long as it speaks **remote MCP** (Streamable HTTP
 | Requirement | Example |
 |-------------|---------|
 | Remote MCP support | URL-based server config |
-| Network path to Mac mini | Tailscale `<bridge-host>`, or LAN `<bridge-host>` when home |
+| Network path to Mac mini | Tailscale `<bridge-host>` is the deployed bind; LAN `<bridge-host>` is only a future/alternate bind |
 | Shared secret | `Authorization: Bearer …` (or mTLS) |
 
 Conceptual config (exact shape varies by client):
@@ -126,25 +132,21 @@ That’s the right replacement for supergateway + stdio: **one protocol, one ser
 | Layer | Detail |
 |-------|--------|
 | Python MCP SDK | `mcp.server.fastmcp.FastMCP` |
-| Transport | stdio MCP only (inside the Python process) |
-| HTTP bridge | **supergateway** wraps stdio and exposes StreamableHTTP |
+| Transport | Native Streamable HTTP (`mcp.run(transport="streamable-http")`) |
+| HTTP bridge | None — `supergateway` removed from launchd path |
 | Active endpoint | `http://<bridge-host>:8081/mcp` |
 | Health endpoint | `http://<bridge-host>:8081/healthz` |
-| Auth | **Not implemented yet** |
+| Auth | SDK bearer auth configured via `token_verifier` + `AuthSettings`; verified no-token 401 and bearer-token initialize 200 from MBP13 |
 
 **launchd command (today):**
 
 ```bash
-/Users/<user>/.volta/bin/npx -y supergateway \
-  --stdio /Users/<user>/.hermes/scripts/hermes_async_bridge.py \
-  --port 8081 \
-  --host 0.0.0.0 \
-  --outputTransport streamableHttp \
-  --healthEndpoint /healthz \
-  --logLevel info
+/Users/<user>/.hermes/scripts/run_hermes_async_bridge.sh
 ```
 
-**Gap vs target:** supergateway + stdio + `0.0.0.0` + no auth. Migrate to native HTTP MCP in Python and bind to Tailscale/LAN with bearer auth.
+**Verified:** transport cutover is complete and auth is proven from MBP13 as a separate tailnet client: unauthenticated `/mcp` returned 401; authenticated initialize returned 200. The listener is bound to the Tailscale IP only, so the old unauthenticated LAN exposure is gone.
+
+**Smoke-test quirk:** the Mac mini cannot reliably curl its own Tailscale IP. Test `http://<bridge-host>:8081/mcp` from another tailnet node, not from the Mac mini itself.
 
 ---
 
@@ -210,9 +212,9 @@ Polling stays as the **client-side safety net** (status checks while Hermes runs
 - `hermes_cancel`
 - `hermes_list`
 - `hermes_sessions`
-- `hermes_transcript` *(planned — export session from `state.db`)*
-- `hermes_decompose` *(planned — T2 export → AtomicClaim[] JSON for verify checklist)*
-- `hermes_task_cost` *(planned — token/model/USD snapshot per task + respond loop)*
+- `hermes_transcript` — export session from `state.db` / `hermes sessions export`
+- `hermes_decompose` — T2 export → `AtomicClaim[]` JSON via repo TypeScript decomposition
+- `hermes_task_cost` — latest/history token/model/USD snapshot per task + respond loop
 
 ---
 
@@ -236,7 +238,7 @@ hermes chat -q <prompt> -Q --yolo --pass-session-id --source tool --resume <sess
 
 ## Cost and observability gaps
 
-The bridge gives remote callers “full Hermes Agent” access per submit. It does not yet capture token/cost/model per task, structured tool-call transcripts, or durable audit beyond SQLite task rows (24h cleanup on restart).
+The bridge gives remote callers “full Hermes Agent” access per submit. Phase 4 now adds SQLite observability tables and post-task cost capture from Hermes `state.db`; live verification still needs to exercise those paths with an authenticated PONG task.
 
 **Cost telemetry target:** see [`specs/hermes-satellite-verify.md`](./specs/hermes-satellite-verify.md#cost-telemetry) — bridge reads session token counters from **`~/.hermes/state.db`** on terminal, persists to **`task_costs`**, returns `TaskCostSnapshot` on `hermes_result` and callbacks.
 
@@ -248,15 +250,11 @@ Hermes config currently has MoA enabled (`moa.enabled: true`, OpenRouter Opus ag
 
 - Architecture, paths, service management, tools, FastMCP, supergateway, StreamableHTTP vs SSE, state DB, retention, limitations.
 
-**Not good enough yet for satellite + verify workflow**
+**Still to verify for satellite + verify workflow**
 
-- No durable append-only audit log
-- SQLite tasks auto-clean after 24h on bridge restart
-- No token/cost capture per task
-- No model/provider capture per task
-- No per-caller identity beyond `caller` string
-- No structured tool-call transcript capture beyond final output/error and Hermes session lookup
-- No completion callback / wake to **satellite verifier** (client must poll)
+- Live PONG task needs to prove `hermes_result.cost`, `hermes_transcript`, and `hermes_decompose`
+- Per-caller identity is still caller-string level, not per-token principal mapping
+- Completion callback endpoint/client listener still needs end-to-end proof
 - No UI
 
 ---
@@ -265,9 +263,10 @@ Hermes config currently has MoA enabled (`moa.enabled: true`, OpenRouter Opus ag
 
 ### 1. Migrate transport
 
-- Native HTTP MCP in Python (drop supergateway + stdio)
-- Bearer auth on every request
-- Bind Tailscale/LAN, not blind `0.0.0.0`
+- Done in launchd: native HTTP MCP in Python (no supergateway/stdio wrapper)
+- Done in config: bearer auth via SDK token verifier
+- Done in launchd: bind Tailscale `<bridge-host>`, not blind `0.0.0.0`
+- Verified from MBP13: no-token `/mcp` returns 401 and bearer-token initialize returns 200
 
 ### 2. Observability tables (SQLite or append-only log)
 
@@ -292,6 +291,6 @@ Hermes config currently has MoA enabled (`moa.enabled: true`, OpenRouter Opus ag
 
 ### 5. Move source of truth into repo
 
-- e.g. `apps/hermes-async-bridge/` or `mac-mini-server/hermes-agent/mcp-bridge/`
-- Keep launchd using the repo script or a deployed symlink
-- Docs live in repo, not only `~/.hermes`
+- `apps/hermes-async-bridge/` is the repo home.
+- Keep launchd using the repo script or a deployed symlink.
+- Docs live in repo, not only `~/.hermes`.

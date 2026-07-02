@@ -1017,6 +1017,8 @@ const REPORT_HEADERS = [
   "What could you not verify?",
   "What feedback did you give?",
   "What do you need from me to verify this next time?",
+  "Cost",
+  "Evidence tier",
   "Verification metadata",
 ] as const;
 
@@ -1036,17 +1038,21 @@ function parseReport(raw: string, _turnIndex: number): ParsedReport | null {
   if (!statusMatch) return null;
   const status = statusMatch[1]!.toLowerCase() as ParsedReport["status"];
 
-  // CONFIDENCE line — case-insensitive, optional. If the agent omits it
-  // (e.g. older persona didn't know about it), derive a sensible default
-  // from STATUS so the bar still gets a meaningful color:
-  //   verified → "verified" (green)   failed → "feedback" (orange)   unsure → "failed" (red)
-  // Reasoning for the fallback: STATUS:failed implies the verifier identified
-  // a problem and ideally called verifier_prompt → FEEDBACK. STATUS:unsure
-  // implies the verifier itself couldn't make a judgment → FAILED.
+  // CONFIDENCE is required. Do not launder missing confidence into a
+  // status-derived default; omission means the Report contract was not met.
   const confMatch = reportBody.match(/^\s*CONFIDENCE\s*:\s*(perfect|verified|partial|feedback|failed)\b/im);
-  const confidence: Confidence = confMatch
-    ? (confMatch[1]!.toLowerCase() as Confidence)
-    : (status === "verified" ? "verified" : status === "failed" ? "feedback" : "failed");
+  if (!confMatch) return null;
+
+  // EVIDENCE_TIER is required so satellite reports can be deterministically
+  // capped by available evidence. Local verifier personas also emit this.
+  const tierMatch = reportBody.match(/^\s*EVIDENCE_TIER\s*:\s*(T0|T1|T2|T3)\b/im);
+  if (!tierMatch) return null;
+
+  const evidenceTier = tierMatch[1]!.toUpperCase() as "T0" | "T1" | "T2" | "T3";
+  const confidence = clampConfidenceToEvidenceTier(
+    confMatch[1]!.toLowerCase() as Confidence,
+    evidenceTier,
+  );
 
   // Split the body on H3 boundaries to populate sections.
   const sections: Record<string, string> = {};
@@ -1054,7 +1060,7 @@ function parseReport(raw: string, _turnIndex: number): ParsedReport | null {
   // are ignored.
   for (const header of REPORT_HEADERS) {
     const re = new RegExp(
-      `^###\\s+${escapeRegex(header)}\\s*$([\\s\\S]*?)(?=^###\\s|^##\\s|\\Z)`,
+      `^###\\s+${escapeRegex(header)}\\s*$([\\s\\S]*?)(?=^###\\s|^##\\s|(?![\\s\\S]))`,
       "m",
     );
     const m = reportBody.match(re);
@@ -1077,6 +1083,29 @@ function parseReport(raw: string, _turnIndex: number): ParsedReport | null {
   }
 
   return { status, confidence, summary, sections };
+}
+
+function clampConfidenceToEvidenceTier(
+  confidence: Confidence,
+  tier: "T0" | "T1" | "T2" | "T3",
+): Confidence {
+  const rank: Record<Confidence, number> = {
+    failed: 0,
+    feedback: 1,
+    partial: 2,
+    verified: 3,
+    perfect: 4,
+  };
+  const byRank = Object.fromEntries(
+    Object.entries(rank).map(([name, value]) => [value, name]),
+  ) as Record<number, Confidence>;
+  const cap: Record<typeof tier, Confidence> = {
+    T0: "partial",
+    T1: "verified",
+    T2: "perfect",
+    T3: "perfect",
+  };
+  return byRank[Math.min(rank[confidence], rank[cap[tier]])]!;
 }
 
 function escapeRegex(s: string): string {

@@ -1,0 +1,38 @@
+{
+  "name": "acceptance-and-tool-pairing",
+  "transcript": {
+    "sessionId": "s-fixture-001",
+    "messages": [
+      {
+        "role": "user",
+        "content": "## Task\nReply PONG.\n\n## Acceptance\n- Reply with the word PONG\n- Nothing else in the response"
+      },
+      {
+        "role": "assistant",
+        "tool_calls": [
+          {
+            "id": "call_bash_1",
+            "name": "bash",
+            "function": { "name": "bash", "arguments": "echo PONG" }
+          }
+        ]
+      },
+      {
+        "role": "tool",
+        "tool_call_id": "call_bash_1",
+        "name": "bash",
+        "content": "PONG"
+      },
+      {
+        "role": "assistant",
+        "content": "Done. PONG."
+      }
+    ]
+  },
+  "originalPrompt": "## Task\nReply PONG.\n\n## Acceptance\n- Reply with the word PONG\n- Nothing else in the response",
+  "expected": {
+    "userRequirements": ["Reply with the word PONG", "Nothing else in the response"],
+    "toolCallIds": ["call_bash_1"],
+    "minToolExecutions": 1
+  }
+}

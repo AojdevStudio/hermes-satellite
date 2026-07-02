@@ -63,7 +63,7 @@ Stop and report each missing critical dep separately so the user can install inc
 
 ### Step 4 — Install TypeScript dependencies
 
-6. Run `cd apps/verifier && npm install`. This installs `@mariozechner/pi-coding-agent`, `@mariozechner/pi-tui`, `typebox`, `typescript`, `@types/node` into `apps/verifier/node_modules/`.
+6. Run `cd apps/verifier && pnpm install`. This installs `@mariozechner/pi-coding-agent`, `@mariozechner/pi-tui`, `typebox`, `typescript`, `@types/node` into `apps/verifier/node_modules/`.
 
 ### Step 5 — Verify configuration files
 
@@ -94,7 +94,7 @@ Stop and report each missing critical dep separately so the user can install inc
 
 ### Step 7 — Final verification (no servers started)
 
-14. Run `cd apps/verifier && npx tsc --noEmit` — must exit 0. Confirms TypeScript compiles cleanly across both extensions and the shared substrate.
+14. Run `cd apps/verifier && pnpm run typecheck` — must exit 0. Confirms TypeScript compiles cleanly across both extensions and the shared substrate.
 
 ### Step 8 — Report
 

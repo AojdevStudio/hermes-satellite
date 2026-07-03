@@ -39,26 +39,7 @@ Point a dedicated host - Mac mini, Linux box, VM, homelab server, CI runner - at
 
 <div align="center">
 
-```
-  [ Any MCP client ]                       [ Hermes host ]
-  Claude Code · Codex · Pi · Cursor · CI      Mac mini · VM · Linux · runner
-        │                                          │
-        │   1. hermes_submit  (task + acceptance)  │
-        │ ───────────────────────────────────────▶ │  execute in a real session
-        │                                          │
-        │   2. poll  ·  or fire-and-forget watcher │
-        │ ◀───────────────────────────────────────▶│  running → completed / failed
-        │                                          │
-        │   3. hermes_transcript  (T2 evidence)    │
-        │ ◀─────────────────────────────────────── │
-        │                                          │
-        │   4. hermes_decompose → AtomicClaim[]     │
-        │   5. oracle each claim vs evidence        │
-        │   6. hermes_respond  (correct + reloop)   │
-        │ ───────────────────────────────────────▶ │
-        └────────────  authenticated MCP  ─────────┘
-              signed · routed · verified
-```
+<img src="assets/dispatch-verify-loop.png" alt="Dispatch and verify loop: a client submits a task to the Hermes host over authenticated MCP, polls or runs a fire-and-forget watcher, pulls transcript evidence, decomposes and oracles each atomic claim client-side, then reloops via hermes_respond" width="100%" />
 
 </div>
 

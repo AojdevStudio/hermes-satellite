@@ -60,6 +60,7 @@ PUBLIC_BASE_URL = os.environ.get("HERMES_ASYNC_BRIDGE_PUBLIC_URL", f"http://{DEF
 STREAMABLE_PATH = os.environ.get("HERMES_ASYNC_BRIDGE_PATH", "/mcp")
 ISSUER_URL = os.environ.get("HERMES_ASYNC_BRIDGE_ISSUER", "https://hermes.local")
 REQUIRED_SCOPES = tuple(s.strip() for s in os.environ.get("HERMES_ASYNC_BRIDGE_SCOPES", "hermes:submit").split(",") if s.strip())
+ALLOWED_PROFILES = tuple(s.strip() for s in os.environ.get("HERMES_ASYNC_BRIDGE_PROFILES", "builder").split(",") if s.strip())
 
 TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
 
@@ -69,6 +70,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     task_id       TEXT PRIMARY KEY,
     parent_task_id TEXT,
     session_id    TEXT,
+    profile       TEXT,
     status        TEXT NOT NULL DEFAULT 'pending',
     prompt        TEXT NOT NULL,
     result        TEXT,
@@ -149,11 +151,73 @@ def _json_dumps(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
 
 
+def _iter_schema_columns() -> Iterable[tuple[str, list[tuple[str, str]]]]:
+    """Yield table names and declared column affinities from _SCHEMA."""
+    create_table_re = re.compile(
+        r"CREATE\s+TABLE\s+IF\s+NOT\s+EXISTS\s+(\w+)\s*\((.*?)\);",
+        re.IGNORECASE | re.DOTALL,
+    )
+    column_constraint_keywords = {
+        "PRIMARY",
+        "NOT",
+        "NULL",
+        "DEFAULT",
+        "COLLATE",
+        "REFERENCES",
+        "CHECK",
+        "UNIQUE",
+        "GENERATED",
+        "AS",
+    }
+    table_constraint_keywords = {"CONSTRAINT", "PRIMARY", "FOREIGN", "UNIQUE", "CHECK"}
+
+    for table_name, body in create_table_re.findall(_SCHEMA):
+        columns: list[tuple[str, str]] = []
+        for raw_line in body.splitlines():
+            line = raw_line.strip().rstrip(",")
+            if not line or line.startswith("--"):
+                continue
+            parts = line.split()
+            if not parts:
+                continue
+            first_token = parts[0].strip('"`[]')
+            if first_token.split("(", 1)[0].upper() in table_constraint_keywords:
+                continue
+            column_name = first_token
+            type_tokens: list[str] = []
+            for token in parts[1:]:
+                if token.upper() in column_constraint_keywords:
+                    break
+                type_tokens.append(token)
+            columns.append((column_name, " ".join(type_tokens) or "TEXT"))
+        yield table_name, columns
+
+
+def _reconcile_schema(conn: sqlite3.Connection) -> None:
+    """Add columns missing from older async_bridge.db files.
+
+    CREATE TABLE IF NOT EXISTS does not alter existing tables, so deployed
+    databases that predate newer nullable columns need an idempotent reconcile.
+    """
+    for table_name, declared_columns in _iter_schema_columns():
+        existing_columns = {
+            row["name"] if isinstance(row, sqlite3.Row) else row[1]
+            for row in conn.execute(f"PRAGMA table_info({table_name})")
+        }
+        for column_name, column_type in declared_columns:
+            if column_name in existing_columns:
+                continue
+            conn.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type}")
+            existing_columns.add(column_name)
+    conn.commit()
+
+
 def get_db() -> sqlite3.Connection:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(DB_PATH), timeout=30)
     conn.row_factory = sqlite3.Row
     conn.executescript(_SCHEMA)
+    _reconcile_schema(conn)
     return conn
 
 
@@ -193,30 +257,30 @@ class TaskManager:
         self._lock = threading.Lock()
         self._running: dict[str, subprocess.Popen[bytes]] = {}
 
-    def submit(self, prompt: str, *, caller: str = "", callback_url: str | None = None) -> str:
+    def submit(self, prompt: str, *, caller: str = "", callback_url: str | None = None, profile: str | None = None) -> str:
         task_id = str(uuid.uuid4())[:12]
         now = time.time()
         conn = get_db()
         try:
             conn.execute(
                 """
-                INSERT INTO tasks (task_id, status, prompt, caller, callback_url, created_at, followups)
-                VALUES (?, 'pending', ?, ?, ?, ?, '[]')
+                INSERT INTO tasks (task_id, status, prompt, caller, callback_url, profile, created_at, followups)
+                VALUES (?, 'pending', ?, ?, ?, ?, ?, '[]')
                 """,
-                (task_id, prompt, caller, callback_url, now),
+                (task_id, prompt, caller, callback_url, profile, now),
             )
             conn.commit()
         finally:
             conn.close()
-        log_event("submit", task_id=task_id, caller=caller, payload={"prompt_chars": len(prompt), "callback": bool(callback_url)})
-        threading.Thread(target=self._run_task, args=(task_id, prompt, None), daemon=True).start()
+        log_event("submit", task_id=task_id, caller=caller, payload={"prompt_chars": len(prompt), "callback": bool(callback_url), "profile": profile})
+        threading.Thread(target=self._run_task, args=(task_id, prompt, None, profile), daemon=True).start()
         return task_id
 
     def submit_followup(self, task_id: str, prompt: str, *, callback_url: str | None = None) -> str:
         conn = get_db()
         try:
             row = conn.execute(
-                "SELECT session_id, caller, callback_url FROM tasks WHERE task_id = ?",
+                "SELECT session_id, caller, callback_url, profile FROM tasks WHERE task_id = ?",
                 (task_id,),
             ).fetchone()
         finally:
@@ -225,6 +289,7 @@ class TaskManager:
             return ""
 
         session_id = row["session_id"]
+        inherited_profile = row["profile"]
         new_task_id = str(uuid.uuid4())[:12]
         inherited_callback = callback_url if callback_url is not None else row["callback_url"]
         now = time.time()
@@ -232,10 +297,10 @@ class TaskManager:
         try:
             conn.execute(
                 """
-                INSERT INTO tasks (task_id, parent_task_id, session_id, status, prompt, caller, callback_url, created_at, followups)
-                VALUES (?, ?, ?, 'pending', ?, 'followup', ?, ?, '[]')
+                INSERT INTO tasks (task_id, parent_task_id, session_id, status, prompt, caller, callback_url, profile, created_at, followups)
+                VALUES (?, ?, ?, 'pending', ?, 'followup', ?, ?, ?, '[]')
                 """,
-                (new_task_id, task_id, session_id, prompt, inherited_callback, now),
+                (new_task_id, task_id, session_id, prompt, inherited_callback, inherited_profile, now),
             )
             conn.execute(
                 "UPDATE tasks SET followups = json_insert(COALESCE(followups, '[]'), '$[#]', json(?)) WHERE task_id = ?",
@@ -244,8 +309,8 @@ class TaskManager:
             conn.commit()
         finally:
             conn.close()
-        log_event("respond", task_id=new_task_id, caller="followup", payload={"parent_task_id": task_id})
-        threading.Thread(target=self._run_task, args=(new_task_id, prompt, session_id), daemon=True).start()
+        log_event("respond", task_id=new_task_id, caller="followup", payload={"parent_task_id": task_id, "profile": inherited_profile})
+        threading.Thread(target=self._run_task, args=(new_task_id, prompt, session_id, inherited_profile), daemon=True).start()
         return new_task_id
 
     def get_status(self, task_id: str) -> dict[str, Any] | None:
@@ -401,11 +466,14 @@ class TaskManager:
             log_event("retention_cleanup", payload={"deleted": deleted, "retention_hours": RETENTION_HOURS})
         return deleted
 
-    def _run_task(self, task_id: str, prompt: str, session_id: str | None) -> None:
+    def _run_task(self, task_id: str, prompt: str, session_id: str | None, profile: str | None = None) -> None:
         self._semaphore.acquire()
         run_id: int | None = None
         started_at = time.time()
-        cmd = [HERMES_BIN, "chat", "-q", prompt, "-Q", "--yolo", "--pass-session-id", "--source", "tool"]
+        cmd = [HERMES_BIN]
+        if profile:
+            cmd.extend(["-p", profile])
+        cmd.extend(["chat", "-q", prompt, "-Q", "--yolo", "--pass-session-id", "--source", "tool"])
         if session_id:
             cmd.extend(["--resume", session_id])
         try:
@@ -799,8 +867,8 @@ def write_state_db_transcript(session_id: str, out_path: Path) -> None:
 
 def decompose_with_repo(transcript_jsonl: str, original_prompt: str) -> dict[str, Any]:
     verifier_dir = REPO_ROOT / "apps" / "verifier"
-    dist_decompose = verifier_dir / "dist" / "hermes" / "decompose.js"
-    if not dist_decompose.exists():
+    dist_decompose_cli = verifier_dir / "dist" / "hermes" / "decompose-cli.js"
+    if not dist_decompose_cli.exists():
         build = subprocess.run(["pnpm", "run", "typecheck"], cwd=str(verifier_dir), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=120)
         if build.returncode != 0:
             raise RuntimeError(f"pnpm run typecheck failed: {build.stderr or build.stdout}")
@@ -810,20 +878,8 @@ def decompose_with_repo(transcript_jsonl: str, original_prompt: str) -> dict[str
     with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8") as handle:
         json.dump({"transcriptJsonl": transcript_jsonl, "originalPrompt": original_prompt}, handle)
         input_path = handle.name
-    script = f"""
-import fs from 'node:fs';
-import {{ decomposeTranscript }} from {json.dumps(dist_decompose.as_uri())};
-const input = JSON.parse(fs.readFileSync(process.argv[1], 'utf8'));
-const firstLine = input.transcriptJsonl.split(/\r?\n/).find(Boolean) ?? '{{}}';
-const exported = JSON.parse(firstLine);
-const transcript = {{
-  sessionId: exported.session_id ?? exported.id ?? exported.sessionId ?? '',
-  messages: exported.messages ?? [],
-}};
-console.log(JSON.stringify(decomposeTranscript({{ transcript, originalPrompt: input.originalPrompt ?? '' }})));
-"""
     try:
-        proc = subprocess.run(["node", "--input-type=module", "-e", script, input_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=60)
+        proc = subprocess.run(["node", str(dist_decompose_cli), input_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=60)
     finally:
         try:
             os.unlink(input_path)
@@ -917,14 +973,17 @@ def create_mcp_server(*, host: str, port: int, token: str | None, allow_unauthen
     task_mgr = TaskManager()
 
     @mcp.tool()
-    def hermes_submit(prompt: str, caller: str = "", callback_url: str = "") -> str:
+    def hermes_submit(prompt: str, caller: str = "", callback_url: str = "", profile: str = "") -> str:
         if not prompt or not prompt.strip():
             return _json_dumps({"error": "prompt is required"})
         prompt = prompt.strip()
         if len(prompt) > 20000:
             return _json_dumps({"error": "prompt too long (max 20000 chars)"})
-        task_id = task_mgr.submit(prompt, caller=caller, callback_url=callback_url or None)
-        return _json_dumps({"task_id": task_id, "status": "pending", "message": "Task submitted. Poll hermes_status."})
+        profile = profile.strip()
+        if profile and profile not in ALLOWED_PROFILES:
+            return _json_dumps({"error": f"unknown profile: {profile}. Allowed: {', '.join(ALLOWED_PROFILES)} (empty = default)"})
+        task_id = task_mgr.submit(prompt, caller=caller, callback_url=callback_url or None, profile=profile or None)
+        return _json_dumps({"task_id": task_id, "status": "pending", "message": "Task submitted. Poll hermes_status.", "profile": profile or "default"})
 
     @mcp.tool()
     def hermes_status(task_id: str) -> str:

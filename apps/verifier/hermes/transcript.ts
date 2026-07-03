@@ -87,7 +87,7 @@ export function parseExportJsonl(raw: string): HermesExportTranscript {
     return normalizeExportObject(parsed);
   }
 
-  const lines = trimmed.split("\n").filter((l) => l.trim().length > 0);
+  const lines = trimmed.split(/\r?\n/).filter((l) => l.trim().length > 0);
   const messages = lines.map((line) => JSON.parse(line) as HermesExportMessageRow);
   const sessionId =
     typeof messages[0]?.session_id === "string" ? messages[0].session_id : "";

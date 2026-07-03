@@ -1,102 +1,193 @@
-# Hermes Satellite
+<div align="center">
+
+<img src="assets/github-hero.png" alt="Hermes Satellite - remote execution, verified outcomes" width="100%" />
+
+<h1>Hermes Satellite</h1>
+
+**Your agent finished. But did it actually do the work, or just say it did?**
 
 Remote Hermes execution and satellite verification over authenticated MCP.
 
-Hermes Satellite turns a Mac mini running Hermes Agent into a shared, authenticated remote executor. MCP-capable clients on other machines submit work to Hermes, poll for terminal status, fetch transcript evidence, decompose claims, and send corrective follow-ups through the same Hermes session.
+[![License: MIT](https://img.shields.io/badge/License-MIT-black.svg)](LICENSE)
+[![MCP](https://img.shields.io/badge/protocol-MCP-red.svg)](https://modelcontextprotocol.io)
+[![Built for agents](https://img.shields.io/badge/built%20for-agents-black.svg)](#)
+[![PRs welcome](https://img.shields.io/badge/PRs-welcome-red.svg)](#contributing)
 
-## What is here
+</div>
 
-- `apps/hermes-async-bridge/` — native Python Streamable HTTP MCP bridge for Hermes Agent.
-- `apps/verifier/hermes/` — TypeScript client, polling, transcript, and decomposition modules.
-- `.pi/verifier/agents/hermes-dispatch.md` — Pi persona for scoped dispatch to Hermes.
-- `.pi/verifier/agents/satellite-verifier.md` — verifier persona for evidence-based remote verification.
-- `specs/hermes-satellite-verify.md` — implementation plan and evidence/cost model.
-- `hermes-mcp.md` — current Mac mini bridge architecture and operational state.
-- `specs/hermes-mcp-main-machine-install.md` — handoff for installing the client config on another machine.
+---
 
-## Example deployment
+## The problem
 
-A typical bridge runs as native FastMCP over Streamable HTTP on a dedicated host (often a Mac mini on Tailscale):
+You hand a long-running task to a coding agent and walk away. Twenty minutes later it reports `done`.
 
-- MCP URL: `http://100.x.x.x:8081/mcp` (replace with your bridge host's Tailscale or LAN IP)
-- Health URL: `http://100.x.x.x:8081/healthz`
-- Auth: `Authorization: Bearer <HERMES_MCP_TOKEN>`
-- launchd wrapper: `~/.hermes/scripts/run_hermes_async_bridge.sh`
+Now what? You have a paragraph of confident prose and no way to know if it's true. So you do the thing that erases the whole point of delegating: you sit and read every line it wrote, because **an agent's summary of its own work is a claim, not proof.** A loop that trusts its own "done" ships code you never saw and never understood, and the faster it runs, the wider that gap grows.
 
-Auth should be verified from a **separate** tailnet node (not from the bridge host itself):
+The usual fixes make it worse. Watch it run in the foreground and you're back to babysitting. Trust it blindly and you're merging vibes. Bolt on a reviewer that shares the executor's context and machine, and you've hired a second optimist to grade the first one's homework.
 
-- no-token MCP initialize → HTTP 401
-- bearer-token MCP initialize → HTTP 200
+## The insight
 
-Operational quirk: the bridge host often cannot reliably curl its own Tailscale IP. Smoke-test from another tailnet node.
+> **The thing that checks the work must not be the thing that did the work - and the cleanest way to guarantee that is to put a network between them.**
 
-## Quick start for a client machine
+Move the executor onto its own machine. Let any MCP-capable client dispatch to it, then pull back the *transcript*, break the outcome into atomic claims, and oracle each claim against real evidence before trusting a word. The trust boundary becomes a network boundary you can place an independent verifier across.
 
-1. Put the bearer token in the client machine's private environment as `HERMES_MCP_TOKEN`.
-2. Configure the MCP client as a remote URL server, not a local command:
+That's Hermes Satellite: **loop engineering fused with the verifier-agent pattern, distributed over MCP.**
+
+## What it does
+
+Point a dedicated host - Mac mini, Linux box, VM, homelab server, CI runner - at Hermes Agent, expose it over an authenticated MCP bridge, and any client on any machine gets a shared remote executor with a verification loop wrapped around it.
+
+<div align="center">
+
+```
+  [ Any MCP client ]                       [ Hermes host ]
+  Claude Code · Codex · Pi · Cursor · CI      Mac mini · VM · Linux · runner
+        │                                          │
+        │   1. hermes_submit  (task + acceptance)  │
+        │ ───────────────────────────────────────▶ │  execute in a real session
+        │                                          │
+        │   2. poll  ·  or fire-and-forget watcher │
+        │ ◀───────────────────────────────────────▶│  running → completed / failed
+        │                                          │
+        │   3. hermes_transcript  (T2 evidence)    │
+        │ ◀─────────────────────────────────────── │
+        │                                          │
+        │   4. hermes_decompose → AtomicClaim[]     │
+        │   5. oracle each claim vs evidence        │
+        │   6. hermes_respond  (correct + reloop)   │
+        │ ───────────────────────────────────────▶ │
+        └────────────  authenticated MCP  ─────────┘
+              signed · routed · verified
+```
+
+</div>
+
+The executor is genuinely separable from the verifier - separable enough to run a **different model family** on each side. Distribution is the scale axis; the oracle is the trust axis; MCP is what lets both move without collapsing back into one box.
+
+## Why it's different
+
+Every loop tool in the wild is single-box: one harness, one machine, one session, verifying its own work over a local socket. Hermes Satellite is the first to put the verifier on the other side of a network from the executor.
+
+| | A plain agent loop | Hermes Satellite |
+|---|---|---|
+| **Completion** | Prose: "done, looks good" | Atomic claims, each oracled against evidence |
+| **Reviewer** | Same session, same blind spots | Independent client, can be a different model family |
+| **Trust boundary** | Process boundary (or none) | Network boundary you place a verifier across |
+| **Confidence** | Vibes | Clamped in code by evidence tier (T0→T3) |
+| **Cost** | Invisible, often unreconciled $0 | `TaskCostSnapshot` surfaced; MoA flagged as unreconciled |
+| **Presence while away** | Babysit the terminal, or fly blind | Zero-token watcher taps you only on state change |
+
+## The assurance model: a colleague, not a black box
+
+Fire-and-forget for you - never silent. Hand off the task, keep working. A background watcher (`skills/hermes-dispatch/tools/hermes_watch.py`) polls in **pure deterministic code, zero tokens, zero LLM calls**, and interrupts only on a state change worth your attention:
+
+- **`done`** - terminal status, with the result pulled and ready to verify.
+- **`stuck`** - past the 600s cap, likely timed out.
+- **`not responding`** - five consecutive failed checks (a sustained outage, not one relay blip), followed by a **`RECOVERED`** line the moment contact resumes.
+- **sparse heartbeats** - a quiet "still alive, no action needed" so silence never reads as success.
+
+The design rule, stated plainly: **presence = free code, judgment = the model, only at result and decision points.** Watching a loop run was solving the wrong problem. The task is gone; the watcher taps you on the shoulder on transition.
+
+## Quick start
+
+**On the Hermes host** - run the bridge (native Python FastMCP over Streamable HTTP):
+
+```bash
+# bind to a private tailnet / VPN address, never a public interface
+export HERMES_ASYNC_BRIDGE_TOKEN="$(openssl rand -hex 32)"
+python3 apps/hermes-async-bridge/hermes_async_bridge.py
+```
+
+The bridge refuses a blind `0.0.0.0` HTTP bind, requires the bearer token unless in stdio/test mode, and persists task state in `$HERMES_HOME/async_bridge.db`.
+
+**On any client machine** - point an MCP client at it by URL, not a local command:
 
 ```yaml
 mcp_servers:
   hermes_async:
-    url: "http://100.x.x.x:8081/mcp"
+    url: "http://<bridge-host>:8081/mcp"     # your Tailscale / LAN IP
     headers:
       Authorization: "Bearer ${HERMES_MCP_TOKEN}"
     timeout: 180
     connect_timeout: 60
 ```
 
-3. Restart the client so MCP discovery runs.
-4. Confirm the bridge tools appear with the client-specific prefix, for example `mcp_hermes_async_hermes_submit` in Hermes Agent.
-5. Run the negative and positive auth checks from `specs/hermes-mcp-main-machine-install.md`.
+Restart the client so MCP discovery runs, then verify auth **from a separate tailnet node** (the bridge host often cannot curl its own Tailscale IP):
 
-## Local development
-
-Install verifier dependencies:
-
-```bash
-cd apps/verifier
-pnpm install
+```
+no-token   MCP initialize  →  HTTP 401
+bearer     MCP initialize  →  HTTP 200
 ```
 
-Useful recipes:
+When the `hermes_*` tools appear with your client's prefix (`mcp__hermes-async__hermes_submit` in Claude Code, `mcp_hermes_async_*` in Hermes Agent), you're live.
 
-```bash
-just                    # list recipes
-just typecheck          # TypeScript no-emit check
-just test               # compile and run Hermes decomposition tests
-just bridge-check       # Python syntax/import-level bridge checks
-just hermes-dispatch    # start Pi dispatch persona with Hermes MCP tooling
-```
+## The verification loop
 
-## Bridge runtime
+The `hermes-dispatch` skill is the operational heart. You are the **dispatcher and the satellite verifier, never the worker**:
 
-The bridge script defaults are intentionally conservative:
+1. **`hermes_submit`** a scoped prompt carrying a `## Acceptance` block - one testable requirement per bullet. These become deterministic claims at verify time; without them the verifier is guessing.
+2. **Poll** the contract (30s initial, 120s interval, 600s hard cap) - or launch the watcher and keep working.
+3. **`hermes_transcript`** for T2 evidence. The result paragraph is a claim; the transcript is proof.
+4. **`hermes_decompose`** the transcript into `AtomicClaim[]`.
+5. **Oracle each claim** read-only against tool evidence - never on prose alone.
+6. **`hermes_respond`** with corrections and reloop, until verified or `max_loops` is hit.
 
-- refuses `0.0.0.0` for HTTP transport
-- requires `HERMES_ASYNC_BRIDGE_TOKEN` unless running stdio/test mode
-- stores task state in `$HERMES_HOME/async_bridge.db`
-- reads Hermes transcript/cost data from `$HERMES_HOME/state.db`
-- records MCP/task/cost audit rows in SQLite
+Confidence is not a vibe - it's clamped in code by how strong the evidence actually is:
 
-See `apps/hermes-async-bridge/README.md` for deployment details.
+| Tier | Evidence | Confidence ceiling |
+|------|----------|--------------------|
+| **T0** | Result text only | `PARTIAL` |
+| **T1** | Session summaries | `VERIFIED` |
+| **T2 / T3** | Full transcript / forced-output | `PERFECT`-eligible |
 
-## Verification model
+Any task that writes files or executes code **requires T2**. A verify pass that stops at the result paragraph grades `PARTIAL` at best. Cost is part of the contract too: `hermes_result` and `hermes_task_cost` surface real spend, and mixture-of-agents rows with unreconciled local cost are reported as **unknown, never a free $0**.
 
-The satellite verifier does not trust final prose alone. The intended verification flow is:
+## What's in the repo
 
-1. `hermes_submit` a structured prompt with a `## Acceptance` section.
-2. Poll using the contract in `hermes-polling.md`.
-3. Fetch T2 evidence with `hermes_transcript(session_id)`.
-4. Decompose the transcript with `hermes_decompose` into `AtomicClaim[]`.
-5. Oracle each claim and report confidence.
-6. Use `hermes_respond` for corrective follow-ups until verified or max loops are exhausted.
+| Path | What it is |
+|------|-----------|
+| `apps/hermes-async-bridge/` | Native Python Streamable HTTP MCP bridge for Hermes Agent |
+| `apps/verifier/hermes/` | TypeScript client - dispatch, polling, transcript, decomposition |
+| `skills/hermes-dispatch/` | The dispatch + satellite-verify skill, plus the zero-token watcher |
+| `hermes-mcp.md` | Bridge architecture and operational state |
+| `hermes-polling.md` | The normative client polling contract |
+| `specs/hermes-satellite-verify.md` | Implementation plan and the evidence / cost model |
+| `ROADMAP.md` | Phased path from bridge foundation to the fully verified loop |
 
-Cost visibility is part of the contract. `hermes_result` and `hermes_task_cost` surface `TaskCostSnapshot` data from Hermes `state.db`; MoA rows with unreconciled local cost are reported as unknown/unreconciled, not free.
+<div align="center">
 
-## Legacy Pi verifier
+<img src="assets/hermes-satellite.png" alt="Hold the loop in your hand" width="88%" />
 
-This repo still contains the original local Pi verifier harness (`just verifier`) because Hermes Satellite grew from that architecture. The new product direction is the remote Hermes bridge plus satellite verification loop; README/images/docs from the old upstream project have been removed or are being rewritten around that direction.
+</div>
+
+## The story
+
+This started with a non-engineer breaking a bash `while` loop down from first principles instead of borrowing someone else's - trying to actually understand what a loop *is* before wiring agents into one. That path ran straight into two of 2026's loudest ideas: **loop engineering** (design the system around the agent, don't prompt it turn by turn) and the **verifier-agent pattern** (a second agent that decomposes work into atomic claims and proves each one, because an agent grading itself shares its own blind spots).
+
+Every implementation of both lived on a single box. The realization that became this repo: put a network between the executor and the verifier, and the choice between in-loop and on-event verification stops being an architecture you bake in - it becomes a per-task knob you set at dispatch. That's the satellite. Two reading threads, finally meeting in one artifact.
+
+## Roadmap
+
+- ✅ Native authenticated HTTP bridge, ten core `hermes_*` tools, polling contract, zero-token watcher
+- 🔜 End-to-end callback / wake path from a real satellite verifier client
+- 🔜 `hermes_progress` - live sub-step visibility ("finished slice 1 of 3"), not just state transitions
+- 🔜 Token-derived principal mapping (beyond caller-string identity)
+- 🔜 Operator UI for the task queue, transcripts, costs, and verification state
+
+See [`ROADMAP.md`](ROADMAP.md) for the full phased plan.
+
+## Contributing
+
+Issues and PRs welcome. Security disclosures: see [`SECURITY.md`](SECURITY.md) - please report privately, don't open a public issue for vulnerabilities.
 
 ## License
 
-MIT — see `LICENSE`.
+MIT - see [`LICENSE`](LICENSE).
+
+<div align="center">
+
+**Remote execution. Verified outcomes.**
+
+If an agent's word isn't enough, star the repo and put a satellite on it.
+
+</div>

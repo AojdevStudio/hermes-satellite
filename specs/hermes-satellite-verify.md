@@ -76,6 +76,17 @@ The dispatch agent must:
 
 Hermes retains full capability. Cost surprises from vague prompts are a **dispatch discipline** problem first; observability is the safety net second.
 
+### Swarm dispatch (delegation-aware, normative)
+
+Hermes parallelizes on the host via `delegate_task`: each call spawns an isolated child agent (own conversation, terminal session, toolset; fresh context; only the final summary returns to the parent), concurrent up to the host's `delegation.max_concurrent_children`, nested when `delegation.max_spawn_depth` > 1 (`role='leaf'|'orchestrator'`). Dispatchers must exploit this rather than serialize:
+
+1. **Work that splits into 3+ independent slices (no ordering, no shared files) is ONE bridge task** carrying a `## Delegation plan` — one self-contained child brief per slice — not N sequential submits. Parallel children are how large scope fits under the bridge's 600s cap.
+2. **Steps that need a review gate between them remain separate bridge tasks.** A swarm yields one verify gate at the end; serial dispatch yields one per step. Choose deliberately.
+3. **Child evidence rule:** a child's tool calls are NOT in the parent's T2 export; the parent transcript proves only the `delegate_task` call and the returned summary. Child summaries are assertion-grade even at parent-T2. Therefore every swarm slice's acceptance bullet MUST name a world-checkable artifact (file, git ref, command output at a path), the satellite verifier oracles world state rather than summaries, and a `user_requirement` supported only by a child summary grades UNSURE at best.
+4. Delegation is an expensive mode: the dispatch prompt declares it (same rule as MoA), `expensiveToolsUsed` will show `delegate_task`, and `perModelBreakdown` is REQUIRED in the cost snapshot.
+
+Operational detail (host knobs, kanban orchestrator, dispatch-shape table) lives in `skills/hermes-dispatch/reference.md` § "Delegation and swarm architecture".
+
 ---
 
 ## Architecture

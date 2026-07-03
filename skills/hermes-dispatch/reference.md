@@ -38,6 +38,42 @@ Bridge gotchas:
 2. Tool results can be double-encoded. The bridge returns `{"result": "<json string>"}` inside the parsed payload, so clients must decode the tool payload and then JSON-decode `payload["result"]` again when it is a string.
 3. A `failed` task with error `Task timed out after 600s` may still have done its work. The cap kills the agent process mid-run, after side effects (commits, pushes, installs) already landed, and `session_id` stays null so the task cannot resume or report. Never re-dispatch on the task record alone: oracle world-state first (git log, remote refs, filesystem, API), then dispatch only the delta that is actually missing.
 
+## Delegation and swarm architecture
+
+How Hermes parallelizes on the host side, and what that does to your evidence. (Source: Hermes delegation-patterns guide + architecture wiki, verified 2026-07-02.)
+
+Mechanics:
+
+- `delegate_task(prompt)` spawns an **isolated child agent**: its own conversation, its own terminal session, its own toolset. The child starts with fresh context — it knows only what the prompt says.
+- **Only the child's final summary returns to the parent.** Intermediate tool calls stay in the child's session and never enter the parent's context window (or its transcript export — see the child evidence rule below).
+- Children run **concurrently**, capped by host config. With `max_spawn_depth` > 1, `delegate_task` accepts `role='leaf'|'orchestrator'` and orchestrator children can delegate again, forming a tree.
+
+Host knobs (Hermes `config.yaml` on the bridge host — operator-set, not settable per dispatch):
+
+```yaml
+delegation:
+  max_concurrent_children: 30   # real-time parallelism ceiling (example value)
+  max_spawn_depth: 2            # 1 = flat (default); 2-3 unlocks orchestrator trees
+```
+
+Above single-task delegation, Hermes also has a **kanban orchestrator** (multi-agent board, swarm topology: planning → specialization → verification → synthesis subgraphs; `hermes kanban decompose` auto-splits a task via an auxiliary LLM; `max_spawn` is a live concurrency limit; diagnostics flag stranded/looping tasks). The bridge dispatch path does not drive kanban today — know it exists as the host-side surface for work too big for one task.
+
+Dispatch strategy:
+
+| Shape of the work | Dispatch as |
+|---|---|
+| 3+ independent slices, no ordering, no shared files | ONE bridge task with a `## Delegation plan` — Hermes fans out via `delegate_task` |
+| Steps that need review gates between them | Separate bridge tasks, verified one at a time |
+| Genuinely one unit of work | One plain task, no delegation |
+
+The wall-clock argument: the 600s cap applies to the bridge task, so parallel children are how large scope fits under it. A swarm that still exceeds the cap dies exactly like any other timeout — bridge gotcha 3 applies (oracle world-state before re-dispatch), and side effects from already-finished children have landed.
+
+**Child evidence rule (normative):** children's tool rows are NOT in the parent's T2 export. The parent transcript proves two things only — the `delegate_task` call happened, and this summary text came back. For any claim about the child's actual work, that summary is assertion-grade (T1-equivalent) even when the parent export is full T2. Consequences:
+
+- Swarm acceptance bullets MUST name world-checkable artifacts; the verifier oracles the world (files, git refs, re-runnable read-only checks), not the summaries.
+- A child summary never PASSes a `user_requirement` alone.
+- Delegation shows up in cost as `expensiveToolsUsed: ["delegate_task"]`, and `perModelBreakdown` is REQUIRED — a scalar model + estimate cannot price an orchestrator plus N workers.
+
 ## Evidence tiers (normative)
 
 | Tier | Source | Verifier can prove | Confidence cap |

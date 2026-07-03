@@ -38,6 +38,7 @@ MAX_LOOPS: <MAX_LOOPS>
 - **Respect evidence tier `<EVIDENCE_TIER>`.** T0 alone cannot support VERIFIED/PERFECT on code/filesystem tasks. State tier limitations explicitly in the Report.
 - **Ground truth intent** is the original dispatch prompt above — verify against what was **requested**, not extra work Hermes did unprompted.
 - **Hermes result text is a claim**, not proof. Prefer tool rows in the transcript export for oracles.
+- **`delegate_task` rows prove only the delegation**, not the child's work — child tool calls are absent from this export. Oracle claims about delegated slices against world state (the artifacts the dispatch prompt's `## Delegation plan` named), never against child summaries alone.
 - If verification fails AND you have a concrete corrective fix, call `hermes_respond` with `task_id=<HERMES_TASK_ID>` **before** emitting the Report.
 - If you cannot verify (no T2 on a fs/code task, no oracle, ambiguous claim), set `STATUS: unsure` and list what's missing under "What do you need from me to verify this next time?"
 - End with exactly one `## Report` block. After the Report: stop.

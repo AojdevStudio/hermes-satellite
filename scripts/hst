@@ -1,0 +1,118 @@
+#!/usr/bin/env bash
+# hst — hermes-satellite observability CLI.
+# Read-only views over the async bridge's SQLite state and logs.
+# Zero deps beyond bash + sqlite3. Install: symlink into a PATH dir
+# (optionally twice, as both `hst` and `hermes-satellite`).
+set -euo pipefail
+
+HERMES_HOME="${HERMES_HOME:-$HOME/.hermes}"
+DB="${HERMES_ASYNC_BRIDGE_DB:-$HERMES_HOME/async_bridge.db}"
+LOG_DIR="${HERMES_ASYNC_BRIDGE_LOG_DIR:-$HOME/Library/Logs}"
+TRANSCRIPT_DIR="${HERMES_ASYNC_BRIDGE_TRANSCRIPT_DIR:-/tmp/hermes-async-bridge-transcripts}"
+
+usage() {
+  cat <<'EOF'
+hst — hermes-satellite bridge observability
+
+Usage: hst <command> [args]
+
+  tasks [-n N] [-s STATUS]   Recent tasks (id, status, profile, caller, age, prompt)
+  task <id-prefix>           Everything about one task: row, runs, costs, events, result
+  events [-n N] [id-prefix]  Bridge MCP event log, optionally for one task
+  costs [-n N]               Cost snapshots joined to tasks
+  transcript <id-prefix>     Export the task's Hermes session transcript (JSONL) and print its path
+  logs [-f]                  Bridge process logs (-f to follow)
+  health                     Service, port, and DB counts at a glance
+
+All output is read-only. DB: $HERMES_ASYNC_BRIDGE_DB or ~/.hermes/async_bridge.db.
+EOF
+}
+
+die() { echo "hst: $*" >&2; exit 1; }
+[ -r "$DB" ] || { [ "${1:-}" = "logs" ] || [ "${1:-}" = "--help" ] || [ "${1:-}" = "-h" ] || [ $# -eq 0 ] || die "bridge db not readable: $DB"; }
+
+# ponytail: plain open, not -readonly — the CLI can't readonly-open this WAL db
+# while the bridge holds it; every query below is a SELECT.
+q() { sqlite3 "$DB" "$@"; }
+qcol() { sqlite3 -column -header "$DB" "$@"; }
+
+resolve_task() {
+  local ids n
+  ids=$(q "SELECT task_id FROM tasks WHERE task_id LIKE '$1%';")
+  n=$(echo "$ids" | grep -c . 2>/dev/null || echo 0)
+  [ "$n" = "1" ] || die "task prefix '$1' matches $n tasks$([ "$n" != 0 ] && echo $'\n'"$ids")"
+  echo "$ids"
+}
+
+cmd="${1:-}"; shift || true
+case "$cmd" in
+  tasks)
+    n=20; status=""
+    while getopts "n:s:" o; do case $o in n) n=$OPTARG;; s) status=$OPTARG;; *) exit 2;; esac; done
+    where=""; [ -n "$status" ] && where="WHERE status='$status'"
+    qcol "SELECT substr(task_id,1,8) AS id, status, COALESCE(profile,'default') AS profile,
+                 COALESCE(NULLIF(caller,''),'-') AS caller,
+                 CAST((strftime('%s','now')-created_at)/60 AS INT)||'m' AS age,
+                 substr(replace(prompt,char(10),' '),1,60) AS prompt
+          FROM tasks $where ORDER BY created_at DESC LIMIT $n;"
+    ;;
+  task)
+    [ $# -ge 1 ] || die "usage: hst task <id-prefix>"
+    id=$(resolve_task "$1")
+    echo "── task ──"
+    qcol "SELECT task_id, status, COALESCE(profile,'default') AS profile, caller, session_id, parent_task_id,
+                 datetime(created_at,'unixepoch','localtime') AS created,
+                 datetime(completed_at,'unixepoch','localtime') AS completed
+          FROM tasks WHERE task_id='$id';"
+    echo; echo "── prompt ──"; q "SELECT prompt FROM tasks WHERE task_id='$id';"
+    echo; echo "── runs ──"
+    qcol "SELECT loop_index, pid, exit_code, CAST(completed_at-started_at AS INT)||'s' AS dur
+          FROM task_runs WHERE task_id='$id' ORDER BY loop_index;"
+    echo; echo "── costs ──"
+    qcol "SELECT * FROM task_costs WHERE task_id='$id';" 2>/dev/null || true
+    echo; echo "── events ──"
+    qcol "SELECT datetime(ts,'unixepoch','localtime') AS at, event_type FROM mcp_events WHERE task_id='$id' ORDER BY ts;"
+    echo; echo "── result ──"
+    q "SELECT COALESCE(result, '(error) '||COALESCE(error,'none')) FROM tasks WHERE task_id='$id';"
+    fu=$(q "SELECT followups FROM tasks WHERE task_id='$id';")
+    [ "$fu" != "[]" ] && { echo; echo "── followups ──"; echo "$fu"; }
+    ;;
+  events)
+    n=30; while getopts "n:" o; do case $o in n) n=$OPTARG;; *) exit 2;; esac; done
+    shift $((OPTIND-1)) || true
+    where=""; [ $# -ge 1 ] && where="WHERE task_id LIKE '$1%'"
+    qcol "SELECT datetime(ts,'unixepoch','localtime') AS at, event_type,
+                 COALESCE(substr(task_id,1,8),'-') AS task, COALESCE(NULLIF(caller,''),'-') AS caller
+          FROM mcp_events $where ORDER BY ts DESC LIMIT $n;"
+    ;;
+  costs)
+    n=10; while getopts "n:" o; do case $o in n) n=$OPTARG;; *) exit 2;; esac; done
+    qcol "SELECT substr(c.task_id,1,8) AS id, c.* FROM task_costs c
+          ORDER BY c.id DESC LIMIT $n;" 2>/dev/null || echo "(no task_costs rows)"
+    ;;
+  transcript)
+    [ $# -ge 1 ] || die "usage: hst transcript <id-prefix>"
+    id=$(resolve_task "$1")
+    sid=$(q "SELECT session_id FROM tasks WHERE task_id='$id';")
+    [ -n "$sid" ] || die "task $id has no session_id (never started?)"
+    profile=$(q "SELECT COALESCE(profile,'') FROM tasks WHERE task_id='$id';")
+    mkdir -p "$TRANSCRIPT_DIR"
+    out="$TRANSCRIPT_DIR/hst-$id.jsonl"
+    if [ -n "$profile" ]; then hermes -p "$profile" sessions export "$out" --session-id "$sid" >/dev/null
+    else hermes sessions export "$out" --session-id "$sid" >/dev/null; fi
+    echo "$out"
+    ;;
+  logs)
+    log="$LOG_DIR/hermes-async-bridge.log"; err="$LOG_DIR/hermes-async-bridge.err.log"
+    if [ "${1:-}" = "-f" ]; then tail -f "$log" "$err"; else tail -n 40 "$log" "$err"; fi
+    ;;
+  health)
+    printf "service: "; launchctl list 2>/dev/null | grep hermes-async-bridge || echo "(not loaded)"
+    printf "port:    "; (lsof -nP -iTCP:"${HERMES_ASYNC_BRIDGE_PORT:-8081}" -sTCP:LISTEN 2>/dev/null | tail -1) || echo "(nothing listening)"
+    echo "db:      $DB"
+    qcol "SELECT status, COUNT(*) AS n FROM tasks GROUP BY status ORDER BY n DESC;"
+    qcol "SELECT COUNT(*) AS events_24h FROM mcp_events WHERE ts > strftime('%s','now')-86400;"
+    ;;
+  -h|--help|"") usage ;;
+  *) die "unknown command: $cmd (try --help)" ;;
+esac

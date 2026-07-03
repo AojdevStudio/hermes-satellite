@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Introduction — Hermes Docs</title>
-<meta name="description" content="What Hermes Satellite is, why self-reported completion is not proof, and how the executor/verifier split changes the loop.">
+<title>Decompose claims — Hermes Docs</title>
+<meta name="description" content="How Hermes Satellite decomposes transcripts and original acceptance bullets into AtomicClaim rows before verification.">
 <link rel="icon" type="image/png" href="../../assets/aoj-logo.png">
 <link rel="stylesheet" href="../../styles.css">
 <style>
@@ -143,11 +143,11 @@
 
 <div class="shell">
   <!-- sidebar -->
-  <aside class="side">
+    <aside class="side">
     <a class="wm" href="../" style="display:block;font-family:var(--font-display);font-size:21px;font-weight:500;letter-spacing:-.01em;color:var(--ink-max);margin:0 0 22px 10px">Hermes Satellite</a>
     <div class="side-group">
       <div class="gh">Getting started</div>
-      <a class="side-i active" href="./">Introduction</a>
+      <a class="side-i" href="../introduction/">Introduction</a>
       <a class="side-i" href="../install/">Install &amp; connect</a>
       <a class="side-i" href="../first-dispatch/">Your first dispatch</a>
     </div>
@@ -160,7 +160,7 @@
     </div>
     <div class="side-group">
       <div class="gh">Verification</div>
-      <a class="side-i" href="../decompose/">Decompose claims</a>
+      <a class="side-i active" href="./">Decompose claims</a>
       <a class="side-i" href="../evidence/">Evidence &amp; outcomes</a>
       <a class="side-i" href="../confidence/">Confidence tiers</a>
     </div>
@@ -174,64 +174,58 @@
 
   <!-- content -->
   <main class="doc">
-    <div class="crumbs"><span>Getting started</span><span class="sep">/</span><span>Introduction</span></div>
-    <h1>Introduction</h1>
-    <p class="lead">Hermes Satellite gives you a remote executor and an independent verifier, separated by a network boundary so Hermes can prove work instead of merely claiming it is done.</p>
+    <div class="crumbs"><span>Verification</span><span class="sep">/</span><span>Decompose claims</span></div>
+    <h1>Decompose claims</h1>
+    <p class="lead">Verification starts by turning Hermes output into an <code class="ic">AtomicClaim[]</code>. Use <code class="ic">hermes_decompose</code> with the transcript or session id and the original prompt, then oracle the returned checklist instead of re-parsing the transcript by hand.</p>
 
-    <h2 id="problem">The problem</h2>
-    <p>You hand a long-running task to an agent, leave it to work, and come back to a confident paragraph that says the task is done. That paragraph is useful context, but it is not proof. An agent's summary of its own work is a claim, and a loop that trusts that claim can ship code the operator never actually observed.</p>
-    <p>The common alternatives collapse the value of delegation. If you watch the terminal, you are babysitting. If you trust blindly, you merge vibes. If the reviewer shares the executor's context, machine, and blind spots, you have only asked a second optimist to grade the first one's homework.</p>
+    <h2 id="contract">The decomposition contract</h2>
+    <p><code class="ic">hermes_decompose(session_id or transcript, original_prompt)</code> is the canonical entry point. The transcript supplies the T2 tool rows; the original prompt supplies the operator requirements that Hermes was asked to satisfy.</p>
+    <div class="code">
+      <div class="code-bar"><span class="lang">text</span><span class="copy" onclick="copyBlock(this)">Copy</span></div>
+      <pre>result = hermes_result(task_id)
+transcript = hermes_transcript(session_id)
+claims = hermes_decompose(transcript, original_prompt)</pre>
+    </div>
+    <p>The satellite verifier should receive a claim checklist, not raw transcript structure. Manual re-parsing makes every loop non-deterministic and lets the verifier miss requirements, double-count prose, or treat a summary as proof.</p>
 
-    <h2 id="insight">The insight</h2>
-    <p>The thing that checks the work must not be the thing that did the work. Hermes Satellite makes that separation concrete by placing a network between the executor and the verifier.</p>
-    <p>A dedicated Hermes host executes the task. A satellite client submits the prompt, polls for state, fetches transcript evidence, decomposes the outcome into atomic claims, and verifies each claim against evidence it can inspect independently. The executor and verifier can run on different machines, with different context, and even different model families.</p>
-
+    <h2 id="original-prompt">Why the original prompt matters</h2>
+    <p>The dispatch prompt must include a <code class="ic">## Acceptance</code> section with one testable bullet per requirement. <code class="ic">hermes_decompose</code> parses those bullets into deterministic <code class="ic">user_requirement</code> claims. Without the original prompt, the verifier can only infer intent from Hermes's answer, which is exactly the thing being checked.</p>
     <div class="callout">
       <div class="ci">i</div>
       <div>
-        <div class="ct">Trust boundary</div>
-        <p>The network split is not incidental plumbing. It is the line that keeps execution and verification from collapsing back into the same optimistic loop.</p>
+        <div class="ct">Operator rule</div>
+        <p>Always pass the exact prompt that created the task. If the acceptance bullets are missing, say that requirement coverage is incomplete instead of inventing requirements from the transcript.</p>
       </div>
     </div>
 
-    <h2 id="what-it-does">What it does</h2>
-    <p>Hermes Satellite exposes a dedicated host — a Mac mini, Linux box, VM, homelab server, or CI runner — through an authenticated MCP bridge. Any MCP-capable client can submit work to Hermes on that host and receive a task handle instead of owning the execution session locally.</p>
-    <p>The core loop is dispatch, poll, fetch, decompose, verify. You dispatch with <code class="ic">hermes_submit</code>, poll with <code class="ic">hermes_status</code>, fetch result and transcript evidence with <code class="ic">hermes_result</code> and <code class="ic">hermes_transcript</code>, decompose the evidence with <code class="ic">hermes_decompose</code>, then use <code class="ic">hermes_respond</code> only when correction is needed.</p>
-
-    <h2 id="why-different">Why it's different</h2>
-    <p>Most loop tooling stays on one box: one harness, one process boundary, one session grading its own work. Hermes Satellite treats distribution as the scale axis and verification as the trust axis. MCP lets both move without merging them back into one local harness.</p>
-
+    <h2 id="taxonomy">Claim taxonomy</h2>
     <table style="border-collapse:collapse;max-width:68ch;margin:0 0 22px;width:100%;font-family:var(--font-grotesk);font-size:14px;color:var(--ink-2)">
-      <thead>
-        <tr>
-          <th style="border:1.5px solid var(--ink-max);padding:10px 12px;text-align:left;background:var(--paper-2)">Dimension</th>
-          <th style="border:1.5px solid var(--ink-max);padding:10px 12px;text-align:left;background:var(--paper-2)">A plain agent loop</th>
-          <th style="border:1.5px solid var(--ink-max);padding:10px 12px;text-align:left;background:var(--paper-2)">Hermes Satellite</th>
-        </tr>
-      </thead>
+      <thead><tr><th style="border:1.5px solid var(--ink-max);padding:10px 12px;text-align:left;background:var(--paper-2)">Kind</th><th style="border:1.5px solid var(--ink-max);padding:10px 12px;text-align:left;background:var(--paper-2)">Where it comes from</th><th style="border:1.5px solid var(--ink-max);padding:10px 12px;text-align:left;background:var(--paper-2)">Oracle rule</th></tr></thead>
       <tbody>
-        <tr><th style="border:1px solid var(--hairline-2);padding:10px 12px;text-align:left">Completion</th><td style="border:1px solid var(--hairline-2);padding:10px 12px">Prose: "done, looks good"</td><td style="border:1px solid var(--hairline-2);padding:10px 12px">Atomic claims, each oracled against evidence</td></tr>
-        <tr><th style="border:1px solid var(--hairline-2);padding:10px 12px;text-align:left">Reviewer</th><td style="border:1px solid var(--hairline-2);padding:10px 12px">Same session, same blind spots</td><td style="border:1px solid var(--hairline-2);padding:10px 12px">Independent client, optionally a different model family</td></tr>
-        <tr><th style="border:1px solid var(--hairline-2);padding:10px 12px;text-align:left">Trust boundary</th><td style="border:1px solid var(--hairline-2);padding:10px 12px">Process boundary, or none</td><td style="border:1px solid var(--hairline-2);padding:10px 12px">Network boundary you place a verifier across</td></tr>
-        <tr><th style="border:1px solid var(--hairline-2);padding:10px 12px;text-align:left">Confidence</th><td style="border:1px solid var(--hairline-2);padding:10px 12px">Vibes</td><td style="border:1px solid var(--hairline-2);padding:10px 12px">Clamped by evidence tier, from T0 through T3</td></tr>
-        <tr><th style="border:1px solid var(--hairline-2);padding:10px 12px;text-align:left">Cost</th><td style="border:1px solid var(--hairline-2);padding:10px 12px">Invisible, often unreconciled as zero</td><td style="border:1px solid var(--hairline-2);padding:10px 12px"><code class="ic">TaskCostSnapshot</code> surfaced; unreconciled MoA cost remains unknown</td></tr>
-        <tr><th style="border:1px solid var(--hairline-2);padding:10px 12px;text-align:left">Presence while away</th><td style="border:1px solid var(--hairline-2);padding:10px 12px">Babysit the terminal, or fly blind</td><td style="border:1px solid var(--hairline-2);padding:10px 12px">Zero-token watcher taps you only on state change</td></tr>
+        <tr><td style="border:1px solid var(--hairline-2);padding:10px 12px"><code class="ic">tool_execution</code></td><td style="border:1px solid var(--hairline-2);padding:10px 12px">Each T2 <code class="ic">tool_call</code> plus matching <code class="ic">tool_result</code>.</td><td style="border:1px solid var(--hairline-2);padding:10px 12px">Compare only against <code class="ic">embeddedEvidence</code> from the tool result row.</td></tr>
+        <tr><td style="border:1px solid var(--hairline-2);padding:10px 12px"><code class="ic">assistant_assertion</code></td><td style="border:1px solid var(--hairline-2);padding:10px 12px">Assertion sentences from the final assistant message.</td><td style="border:1px solid var(--hairline-2);padding:10px 12px">Require a cited tool row or external oracle; never PASS on prose alone.</td></tr>
+        <tr><td style="border:1px solid var(--hairline-2);padding:10px 12px"><code class="ic">user_requirement</code></td><td style="border:1px solid var(--hairline-2);padding:10px 12px">Bullets under the original prompt's <code class="ic">## Acceptance</code> heading.</td><td style="border:1px solid var(--hairline-2);padding:10px 12px">PASS only when supporting tool evidence proves the requirement.</td></tr>
+        <tr><td style="border:1px solid var(--hairline-2);padding:10px 12px"><code class="ic">structured_assistant_claim</code></td><td style="border:1px solid var(--hairline-2);padding:10px 12px">Schema-shaped claim blocks in assistant output.</td><td style="border:1px solid var(--hairline-2);padding:10px 12px">Candidate only; cap confidence at 0.55 unless T2 proves a forced output mechanism.</td></tr>
       </tbody>
     </table>
 
+    <h2 id="shape">Atomic claim shape</h2>
+    <p>Each claim has an id, kind, source pointer, text, and optional evidence fields. <code class="ic">tool_execution</code> claims carry <code class="ic">embeddedEvidence</code>; <code class="ic">structured_assistant_claim</code> may carry <code class="ic">structuredOutputMechanism</code> when the transcript proves one.</p>
+    <p>The output exists to make verification boring: every row gets PASS, FAIL, or UNSURE, and no report can claim PERFECT while a returned claim is unchecked.</p>
+
     <div class="pager">
-      <span></span>
-      <a class="pcard next" href="../install/"><span class="pdir">Next →</span><span class="ptitle">Install &amp; connect</span></a>
+      <a class="pcard" href="../shared-machine/"><span class="pdir">← Previous</span><span class="ptitle">Shared machine</span></a>
+      <a class="pcard next" href="../evidence/"><span class="pdir">Next →</span><span class="ptitle">Evidence &amp; outcomes</span></a>
     </div>
   </main>
 
   <!-- toc -->
   <nav class="toc">
     <div class="toc-h">On this page</div>
-    <a href="#problem" class="active">The problem</a>
-    <a href="#insight">The insight</a>
-    <a href="#what-it-does">What it does</a>
-    <a href="#why-different">Why it's different</a>
+    <a href="#contract" class="active">The decomposition contract</a>
+    <a href="#original-prompt">Why the original prompt matters</a>
+    <a href="#taxonomy">Claim taxonomy</a>
+    <a href="#shape">Atomic claim shape</a>
   </nav>
 </div>
 

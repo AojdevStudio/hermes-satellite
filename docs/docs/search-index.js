@@ -14,4 +14,7 @@ window.DOCS_INDEX = [
   { title: 'Poll for status', section: 'Execution', href: './poll/' },
   { title: 'Fetch transcript', section: 'Execution', href: './transcript/' },
   { title: 'Shared machine', section: 'Execution', href: './shared-machine/' },
+  { title: 'Decompose claims', section: 'Verification', href: './decompose/' },
+  { title: 'Evidence & outcomes', section: 'Verification', href: './evidence/' },
+  { title: 'Confidence tiers', section: 'Verification', href: './confidence/' },
 ];

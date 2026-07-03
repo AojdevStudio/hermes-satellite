@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Introduction — Hermes Docs</title>
-<meta name="description" content="What Hermes Satellite is, why self-reported completion is not proof, and how the executor/verifier split changes the loop.">
+<title>Evidence & outcomes — Hermes Docs</title>
+<meta name="description" content="The read-only oracle pass, machine-parseable report contract, reloop path, and cost reporting rules for Hermes Satellite verification.">
 <link rel="icon" type="image/png" href="../../assets/aoj-logo.png">
 <link rel="stylesheet" href="../../styles.css">
 <style>
@@ -143,11 +143,11 @@
 
 <div class="shell">
   <!-- sidebar -->
-  <aside class="side">
+    <aside class="side">
     <a class="wm" href="../" style="display:block;font-family:var(--font-display);font-size:21px;font-weight:500;letter-spacing:-.01em;color:var(--ink-max);margin:0 0 22px 10px">Hermes Satellite</a>
     <div class="side-group">
       <div class="gh">Getting started</div>
-      <a class="side-i active" href="./">Introduction</a>
+      <a class="side-i" href="../introduction/">Introduction</a>
       <a class="side-i" href="../install/">Install &amp; connect</a>
       <a class="side-i" href="../first-dispatch/">Your first dispatch</a>
     </div>
@@ -161,7 +161,7 @@
     <div class="side-group">
       <div class="gh">Verification</div>
       <a class="side-i" href="../decompose/">Decompose claims</a>
-      <a class="side-i" href="../evidence/">Evidence &amp; outcomes</a>
+      <a class="side-i active" href="./">Evidence &amp; outcomes</a>
       <a class="side-i" href="../confidence/">Confidence tiers</a>
     </div>
     <div class="side-group">
@@ -174,64 +174,69 @@
 
   <!-- content -->
   <main class="doc">
-    <div class="crumbs"><span>Getting started</span><span class="sep">/</span><span>Introduction</span></div>
-    <h1>Introduction</h1>
-    <p class="lead">Hermes Satellite gives you a remote executor and an independent verifier, separated by a network boundary so Hermes can prove work instead of merely claiming it is done.</p>
+    <div class="crumbs"><span>Verification</span><span class="sep">/</span><span>Evidence &amp; outcomes</span></div>
+    <h1>Evidence &amp; outcomes</h1>
+    <p class="lead">The oracle pass is read-only and evidence-bound. Pull <code class="ic">hermes_result</code>, T2 transcript evidence, and <code class="ic">hermes_decompose</code> claims, then report machine-parseable outcomes with cost before deciding whether to finish, reloop, or escalate.</p>
 
-    <h2 id="problem">The problem</h2>
-    <p>You hand a long-running task to an agent, leave it to work, and come back to a confident paragraph that says the task is done. That paragraph is useful context, but it is not proof. An agent's summary of its own work is a claim, and a loop that trusts that claim can ship code the operator never actually observed.</p>
-    <p>The common alternatives collapse the value of delegation. If you watch the terminal, you are babysitting. If you trust blindly, you merge vibes. If the reviewer shares the executor's context, machine, and blind spots, you have only asked a second optimist to grade the first one's homework.</p>
+    <h2 id="read-only">Read-only oracle pass</h2>
+    <p>Verifier independence is an enforcement rule, not a persona sentence. Run the satellite verifier with read-only tools, or add a post-hoc assertion that the verify transcript issued zero mutating tool calls. If neither mechanism exists, do not call the pass read-only.</p>
+    <p><code class="ic">tool_execution</code> claims compare only against T2 <code class="ic">embeddedEvidence</code>. Assistant assertions must cite a tool row or another external oracle. Assertions never PASS on prose alone, even when the prose appears in <code class="ic">hermes_result</code>.</p>
 
-    <h2 id="insight">The insight</h2>
-    <p>The thing that checks the work must not be the thing that did the work. Hermes Satellite makes that separation concrete by placing a network between the executor and the verifier.</p>
-    <p>A dedicated Hermes host executes the task. A satellite client submits the prompt, polls for state, fetches transcript evidence, decomposes the outcome into atomic claims, and verifies each claim against evidence it can inspect independently. The executor and verifier can run on different machines, with different context, and even different model families.</p>
+    <h2 id="report-contract">Report contract</h2>
+    <p>The report parser expects fixed lines. Missing <code class="ic">CONFIDENCE:</code>, <code class="ic">STATUS:</code>, or <code class="ic">EVIDENCE_TIER:</code> means the report is discarded instead of trusted by default.</p>
+    <div class="code">
+      <div class="code-bar"><span class="lang">markdown</span><span class="copy" onclick="copyBlock(this)">Copy</span></div>
+      <pre>CONFIDENCE: PERFECT | VERIFIED | PARTIAL | FEEDBACK | FAILED
+STATUS: verified | failed | unsure
+EVIDENCE_TIER: T0 | T1 | T2 | T3
 
-    <div class="callout">
-      <div class="ci">i</div>
-      <div>
-        <div class="ct">Trust boundary</div>
-        <p>The network split is not incidental plumbing. It is the line that keeps execution and verification from collapsing back into the same optimistic loop.</p>
-      </div>
+| Claim | Kind | Verdict | Evidence |
+|-------|------|---------|----------|
+| c1 | tool_execution | PASS | tool result row |
+
+### Cost
+- Task: &lt;task_id&gt; - loop &lt;n&gt;
+- Model: &lt;provider&gt;/&lt;model&gt;
+- Tokens: &lt;prompt&gt; + &lt;completion&gt; = &lt;total&gt;
+- Estimated: &lt;value or unavailable&gt;</pre>
     </div>
+    <p>Every claim id from <code class="ic">hermes_decompose</code> must appear in the table with PASS, FAIL, or UNSURE. If cost is not present on <code class="ic">hermes_result</code>, query <code class="ic">hermes_task_cost</code>; if the bridge still has no cost block, write <code class="ic">unavailable</code>.</p>
 
-    <h2 id="what-it-does">What it does</h2>
-    <p>Hermes Satellite exposes a dedicated host — a Mac mini, Linux box, VM, homelab server, or CI runner — through an authenticated MCP bridge. Any MCP-capable client can submit work to Hermes on that host and receive a task handle instead of owning the execution session locally.</p>
-    <p>The core loop is dispatch, poll, fetch, decompose, verify. You dispatch with <code class="ic">hermes_submit</code>, poll with <code class="ic">hermes_status</code>, fetch result and transcript evidence with <code class="ic">hermes_result</code> and <code class="ic">hermes_transcript</code>, decompose the evidence with <code class="ic">hermes_decompose</code>, then use <code class="ic">hermes_respond</code> only when correction is needed.</p>
-
-    <h2 id="why-different">Why it's different</h2>
-    <p>Most loop tooling stays on one box: one harness, one process boundary, one session grading its own work. Hermes Satellite treats distribution as the scale axis and verification as the trust axis. MCP lets both move without merging them back into one local harness.</p>
-
+    <h2 id="outcomes">Outcome mapping</h2>
     <table style="border-collapse:collapse;max-width:68ch;margin:0 0 22px;width:100%;font-family:var(--font-grotesk);font-size:14px;color:var(--ink-2)">
-      <thead>
-        <tr>
-          <th style="border:1.5px solid var(--ink-max);padding:10px 12px;text-align:left;background:var(--paper-2)">Dimension</th>
-          <th style="border:1.5px solid var(--ink-max);padding:10px 12px;text-align:left;background:var(--paper-2)">A plain agent loop</th>
-          <th style="border:1.5px solid var(--ink-max);padding:10px 12px;text-align:left;background:var(--paper-2)">Hermes Satellite</th>
-        </tr>
-      </thead>
+      <thead><tr><th style="border:1.5px solid var(--ink-max);padding:10px 12px;text-align:left;background:var(--paper-2)">Confidence</th><th style="border:1.5px solid var(--ink-max);padding:10px 12px;text-align:left;background:var(--paper-2)">Status</th><th style="border:1.5px solid var(--ink-max);padding:10px 12px;text-align:left;background:var(--paper-2)">Action</th></tr></thead>
       <tbody>
-        <tr><th style="border:1px solid var(--hairline-2);padding:10px 12px;text-align:left">Completion</th><td style="border:1px solid var(--hairline-2);padding:10px 12px">Prose: "done, looks good"</td><td style="border:1px solid var(--hairline-2);padding:10px 12px">Atomic claims, each oracled against evidence</td></tr>
-        <tr><th style="border:1px solid var(--hairline-2);padding:10px 12px;text-align:left">Reviewer</th><td style="border:1px solid var(--hairline-2);padding:10px 12px">Same session, same blind spots</td><td style="border:1px solid var(--hairline-2);padding:10px 12px">Independent client, optionally a different model family</td></tr>
-        <tr><th style="border:1px solid var(--hairline-2);padding:10px 12px;text-align:left">Trust boundary</th><td style="border:1px solid var(--hairline-2);padding:10px 12px">Process boundary, or none</td><td style="border:1px solid var(--hairline-2);padding:10px 12px">Network boundary you place a verifier across</td></tr>
-        <tr><th style="border:1px solid var(--hairline-2);padding:10px 12px;text-align:left">Confidence</th><td style="border:1px solid var(--hairline-2);padding:10px 12px">Vibes</td><td style="border:1px solid var(--hairline-2);padding:10px 12px">Clamped by evidence tier, from T0 through T3</td></tr>
-        <tr><th style="border:1px solid var(--hairline-2);padding:10px 12px;text-align:left">Cost</th><td style="border:1px solid var(--hairline-2);padding:10px 12px">Invisible, often unreconciled as zero</td><td style="border:1px solid var(--hairline-2);padding:10px 12px"><code class="ic">TaskCostSnapshot</code> surfaced; unreconciled MoA cost remains unknown</td></tr>
-        <tr><th style="border:1px solid var(--hairline-2);padding:10px 12px;text-align:left">Presence while away</th><td style="border:1px solid var(--hairline-2);padding:10px 12px">Babysit the terminal, or fly blind</td><td style="border:1px solid var(--hairline-2);padding:10px 12px">Zero-token watcher taps you only on state change</td></tr>
+        <tr><td style="border:1px solid var(--hairline-2);padding:10px 12px"><code class="ic">PERFECT</code></td><td style="border:1px solid var(--hairline-2);padding:10px 12px"><code class="ic">verified</code></td><td style="border:1px solid var(--hairline-2);padding:10px 12px">All claims verified with eligible evidence; finish.</td></tr>
+        <tr><td style="border:1px solid var(--hairline-2);padding:10px 12px"><code class="ic">VERIFIED</code></td><td style="border:1px solid var(--hairline-2);padding:10px 12px"><code class="ic">verified</code></td><td style="border:1px solid var(--hairline-2);padding:10px 12px">All checked claims passed with minor gaps; finish and state the gaps.</td></tr>
+        <tr><td style="border:1px solid var(--hairline-2);padding:10px 12px"><code class="ic">PARTIAL</code></td><td style="border:1px solid var(--hairline-2);padding:10px 12px"><code class="ic">verified</code></td><td style="border:1px solid var(--hairline-2);padding:10px 12px">No failures, but important evidence is missing; report the cap.</td></tr>
+        <tr><td style="border:1px solid var(--hairline-2);padding:10px 12px"><code class="ic">FEEDBACK</code></td><td style="border:1px solid var(--hairline-2);padding:10px 12px"><code class="ic">failed</code></td><td style="border:1px solid var(--hairline-2);padding:10px 12px">Failures found; send corrective input through <code class="ic">hermes_respond</code>.</td></tr>
+        <tr><td style="border:1px solid var(--hairline-2);padding:10px 12px"><code class="ic">FAILED</code></td><td style="border:1px solid var(--hairline-2);padding:10px 12px"><code class="ic">unsure</code></td><td style="border:1px solid var(--hairline-2);padding:10px 12px">Cannot verify; escalate to the operator.</td></tr>
       </tbody>
     </table>
 
+    <h2 id="reloop">Reloop path</h2>
+    <p>When claims fail and the task completed with a resumable session id, call <code class="ic">hermes_respond(session_id, corrective_prompt)</code>, poll again with <code class="ic">hermes_status</code>, fetch the new terminal result with <code class="ic">hermes_result</code>, and verify the new claims. Stop after <code class="ic">max_loops</code> 3 and escalate.</p>
+    <div class="callout">
+      <div class="ci">i</div>
+      <div>
+        <div class="ct">Terminal failure</div>
+        <p>Never call <code class="ic">hermes_respond</code> on a failed task. A failed task has <code class="ic">session_id</code> null, so there is no session to resume. Oracle current world state, report what is known, and escalate or dispatch only the missing delta.</p>
+      </div>
+    </div>
+
     <div class="pager">
-      <span></span>
-      <a class="pcard next" href="../install/"><span class="pdir">Next →</span><span class="ptitle">Install &amp; connect</span></a>
+      <a class="pcard" href="../decompose/"><span class="pdir">← Previous</span><span class="ptitle">Decompose claims</span></a>
+      <a class="pcard next" href="../confidence/"><span class="pdir">Next →</span><span class="ptitle">Confidence tiers</span></a>
     </div>
   </main>
 
   <!-- toc -->
   <nav class="toc">
     <div class="toc-h">On this page</div>
-    <a href="#problem" class="active">The problem</a>
-    <a href="#insight">The insight</a>
-    <a href="#what-it-does">What it does</a>
-    <a href="#why-different">Why it's different</a>
+    <a href="#read-only" class="active">Read-only oracle pass</a>
+    <a href="#report-contract">Report contract</a>
+    <a href="#outcomes">Outcome mapping</a>
+    <a href="#reloop">Reloop path</a>
   </nav>
 </div>
 

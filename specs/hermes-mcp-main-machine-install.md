@@ -5,9 +5,9 @@ Audience: operators installing the MCP client on a developer machine
 
 ## Bottom line
 
-The Mac mini bridge is no longer the old `supergateway` stdio wrapper. It is now intended to be consumed as a remote HTTP MCP server:
+The Mac mini bridge is no longer the old `supergateway` stdio wrapper. It is now intended to be consumed as a remote HTTP MCP server over Tailscale; clients must be on the tailnet:
 
-- URL: `http://100.x.x.x:8081/mcp`
+- URL: `http://100.66.249.14:8081/mcp`
 - Transport: Streamable HTTP MCP
 - Auth: `Authorization: Bearer <HERMES_MCP_TOKEN>`
 - Token source for this repo checkout: `<repo-root>/.env`
@@ -21,7 +21,7 @@ Verified locally on the Mac mini before this handoff:
 
 - launchd label: `com.example.hermes-async-bridge`
 - ProgramArguments: `~/.hermes/scripts/run_hermes_async_bridge.sh`
-- Listener: Python process on `100.x.x.x:8081`
+- Listener: Python process on `100.66.249.14:8081`
 - Canonical repo script: `apps/hermes-async-bridge/hermes_async_bridge.py`
 - Runtime symlink: `~/.hermes/scripts/hermes_async_bridge.py`
 - Runtime token cache: `~/.hermes/secrets/hermes_async_bridge_token`
@@ -50,7 +50,7 @@ Edit `~/.hermes/config.yaml` on the main machine and add:
 ```yaml
 mcp_servers:
   hermes_async:
-    url: "http://100.x.x.x:8081/mcp"
+    url: "http://100.66.249.14:8081/mcp"
     headers:
       Authorization: "Bearer ${HERMES_MCP_TOKEN}"
     timeout: 180
@@ -62,7 +62,7 @@ If Hermes config does not expand `${HERMES_MCP_TOKEN}` in YAML headers in the in
 Alternative CLI starting point, if the current Hermes build supports header-auth setup interactively:
 
 ```bash
-hermes mcp add hermes_async --url http://100.x.x.x:8081/mcp --auth header
+hermes mcp add hermes_async --url http://100.66.249.14:8081/mcp --auth header
 ```
 
 Then inspect `~/.hermes/config.yaml` and ensure it has an Authorization header using the Bearer scheme.
@@ -76,7 +76,7 @@ Important quirk: the Mac mini cannot reliably curl its own Tailscale IP. Do not 
 ### 1. Network health
 
 ```bash
-curl -fsS http://100.x.x.x:8081/healthz
+curl -fsS http://100.66.249.14:8081/healthz
 ```
 
 Expected: `ok`.
@@ -148,7 +148,7 @@ For the completed task/session, verify:
 
 ## Troubleshooting
 
-- Connection refused: check Tailscale connectivity to `100.x.x.x` and that launchd is listening on Mac mini.
+- Connection refused: check Tailscale connectivity to `100.66.249.14` and that launchd is listening on Mac mini.
 - 401/403 with token: verify local token matches the bridge operator's `HERMES_ASYNC_BRIDGE_TOKEN` and repo `.env` value.
 - Tools absent after config: restart Hermes; MCP discovery happens at startup.
 - HTTP transport unsupported: upgrade/install Python `mcp` package for the client Hermes environment.
@@ -162,7 +162,7 @@ When done, report:
 
 ```text
 STATUS: PASS|FAIL
-Endpoint: http://100.x.x.x:8081/mcp
+Endpoint: http://100.66.249.14:8081/mcp
 Negative auth: <HTTP status>
 Positive auth: <HTTP status / initialized?>
 Discovered tools: <count + key names>

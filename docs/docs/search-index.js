@@ -17,4 +17,7 @@ window.DOCS_INDEX = [
   { title: 'Decompose claims', section: 'Verification', href: './decompose/' },
   { title: 'Evidence & outcomes', section: 'Verification', href: './evidence/' },
   { title: 'Confidence tiers', section: 'Verification', href: './confidence/' },
+  { title: 'Authenticated bridge', section: 'MCP', href: './bridge/' },
+  { title: 'Clients', section: 'MCP', href: './clients/' },
+  { title: 'Tool reference', section: 'MCP', href: './tools/' },
 ];

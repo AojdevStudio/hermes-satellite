@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Install & connect — Hermes Docs</title>
-<meta name="description" content="Install the authenticated Hermes Satellite bridge, connect MCP clients, and verify bearer-token access from a separate tailnet node.">
+<title>Clients — Hermes Docs</title>
+<meta name="description" content="Configure MCP-capable clients to connect to the Hermes bridge and honor the polling contract.">
 <link rel="icon" type="image/png" href="../../assets/aoj-logo.png">
 <link rel="stylesheet" href="../../styles.css">
 <style>
@@ -122,7 +122,6 @@
 </style>
 </head>
 <body>
-
 <header class="nav">
   <a class="brand" href="../">
     <img src="../../assets/aoj-logo.png" alt="AOJ Dev Studio">
@@ -148,7 +147,7 @@
     <div class="side-group">
       <div class="gh">Getting started</div>
       <a class="side-i" href="../introduction/">Introduction</a>
-      <a class="side-i active" href="./">Install &amp; connect</a>
+      <a class="side-i" href="../install/">Install &amp; connect</a>
       <a class="side-i" href="../first-dispatch/">Your first dispatch</a>
     </div>
     <div class="side-group">
@@ -166,73 +165,67 @@
     </div>
     <div class="side-group">
       <div class="gh">MCP</div>
-      <a class="side-i" href="../bridge/">Authenticated bridge</a>
-      <a class="side-i" href="../clients/">Clients</a>
+            <a class="side-i" href="../bridge/">Authenticated bridge</a>
+      <a class="side-i active" href="./">Clients</a>
       <a class="side-i" href="../tools/">Tool reference</a>
     </div>
   </aside>
 
   <!-- content -->
   <main class="doc">
-    <div class="crumbs"><span>Getting started</span><span class="sep">/</span><span>Install &amp; connect</span></div>
-    <h1>Install &amp; connect</h1>
-    <p class="lead">Run the authenticated bridge on a private Hermes host, point each MCP client at its URL, and verify bearer-token access from a separate tailnet node before dispatching work.</p>
+    <div class="crumbs"><span>MCP</span><span class="sep">/</span><span>Clients</span></div>
+    <h1>Clients</h1>
+    <p class="lead">Any MCP-capable client connects to the bridge by URL and bearer header, not by spawning a local command. After discovery, the client owns the polling contract: wait 30 seconds, poll every 120 seconds while active, and stop at 600 seconds from submit.</p>
 
-    <h2 id="host">Bridge host setup</h2>
-    <p>On the Hermes host, run the native Python FastMCP bridge over Streamable HTTP. Bind it to a private tailnet or VPN address, not a public interface. The bridge refuses a blind <code class="ic">0.0.0.0</code> HTTP bind and requires bearer-token auth unless it is running in stdio or test mode.</p>
-
-    <div class="code">
-      <div class="code-bar"><span class="lang">bash</span><span class="copy" onclick="copyBlock(this)">Copy</span></div>
-      <pre><span class="tok-c"># run on the Hermes host</span>
-export HERMES_ASYNC_BRIDGE_TOKEN=<span class="tok-c">"$(openssl rand -hex 32)"</span>
-python3 apps/hermes-async-bridge/hermes_async_bridge.py</pre>
-    </div>
-
-    <p>Task state persists under <code class="ic">$HERMES_HOME/async_bridge.db</code>. Keep the token in a secret manager or local environment file and do not commit it.</p>
-
-    <h2 id="client">Client configuration</h2>
-    <p>On each client machine, configure the MCP server by URL. Do not configure the bridge as a local command on the client; the client should connect to the shared Hermes host over the private network.</p>
-
+    <h2 id="remote-config">Remote MCP config</h2>
+    <p>Configure the bridge as a remote MCP server. The exact YAML shape depends on the harness, but the required fields are the URL, an authorization header, and timeouts that let long Hermes runs complete without making client startup hang.</p>
     <div class="code">
       <div class="code-bar"><span class="lang">yaml</span><span class="copy" onclick="copyBlock(this)">Copy</span></div>
-      <pre>mcp_servers:
-  hermes_async:
-    url: <span class="tok-c">"http://&lt;bridge-host&gt;:8081/mcp"</span>
-    headers:
-      Authorization: <span class="tok-c">"Bearer ${HERMES_MCP_TOKEN}"</span>
-    timeout: 180
-    connect_timeout: 60</pre>
+      <pre>hermes-async:
+  url: http://100.x.x.x:8081/mcp
+  headers:
+    Authorization: Bearer &lt;token&gt;
+  timeout: 600
+  connect_timeout: 30</pre>
     </div>
+    <p>Restart the client after changing MCP configuration. Tool discovery usually happens at process start, so a running client may not see the bridge until it reconnects.</p>
 
-    <p>The relevant fields are the bridge <code class="ic">url</code>, the <code class="ic">Authorization</code> bearer header, and the long enough <code class="ic">timeout</code> and <code class="ic">connect_timeout</code> values for MCP discovery and task operations.</p>
+    <h2 id="tool-names">Tool-name prefixes</h2>
+    <p>The base tool names are stable, but harnesses prepend their own namespace. Write docs and prompts against the base names when possible, then translate to the live tool names reported by discovery.</p>
+    <table style="border-collapse:collapse;max-width:68ch;margin:0 0 22px;width:100%;font-family:var(--font-grotesk);font-size:14px;color:var(--ink-2)">
+      <thead><tr><th style="border:1.5px solid var(--ink-max);padding:10px 12px;text-align:left;background:var(--paper-2)">Harness</th><th style="border:1.5px solid var(--ink-max);padding:10px 12px;text-align:left;background:var(--paper-2)">Example prefix</th></tr></thead>
+      <tbody>
+        <tr><td style="border:1px solid var(--hairline-2);padding:10px 12px">Claude Code</td><td style="border:1px solid var(--hairline-2);padding:10px 12px"><code class="ic">mcp__hermes-async__hermes_*</code></td></tr>
+        <tr><td style="border:1px solid var(--hairline-2);padding:10px 12px">Hermes Agent</td><td style="border:1px solid var(--hairline-2);padding:10px 12px"><code class="ic">mcp_hermes_async_*</code></td></tr>
+        <tr><td style="border:1px solid var(--hairline-2);padding:10px 12px">Other MCP clients</td><td style="border:1px solid var(--hairline-2);padding:10px 12px">Connect by URL and use the discovered tool list.</td></tr>
+      </tbody>
+    </table>
 
-    <h2 id="auth">Verify auth from another node</h2>
-    <p>Restart the client so MCP discovery runs, then verify auth from a separate tailnet node. The bridge host may not be able to curl its own Tailscale IP, so a second node is the meaningful test.</p>
+    <h2 id="verify">Verify from another node</h2>
+    <p>Smoke-test from a separate tailnet or VPN node. The bridge host may not be able to curl its own tailnet address, and a same-machine test can hide routing mistakes.</p>
+    <ul>
+      <li><code class="ic">/healthz</code> should return liveness without credentials.</li>
+      <li>An unauthenticated MCP initialize against <code class="ic">/mcp</code> should return 401.</li>
+      <li>The same initialize with <code class="ic">Authorization: Bearer &lt;token&gt;</code> should return 200 and list the <code class="ic">hermes_*</code> tools.</li>
+    </ul>
 
-    <div class="term">
-      <div class="term-bar"><span class="tl" style="background:var(--tl-red)"></span><span class="tl" style="background:var(--tl-yellow)"></span><span class="tl" style="background:var(--tl-green)"></span><span class="m" style="margin-left:8px;font-family:var(--font-mono);font-size:12px">auth check</span></div>
-      <pre>no-token   MCP initialize  →  HTTP 401
-bearer     MCP initialize  →  HTTP 200</pre>
-    </div>
-
-    <p>A health endpoint can show that the process is alive, but only MCP initialize with the bearer token proves tool auth.</p>
-
-    <h2 id="prefixes">Client tool prefixes</h2>
-    <p>Tool names are stable at the bridge and prefixed by the client harness. In Claude Code, expect names such as <code class="ic">mcp__hermes-async__hermes_submit</code>. In Hermes Agent, expect <code class="ic">mcp_hermes_async_*</code>. The base tools remain <code class="ic">hermes_submit</code>, <code class="ic">hermes_status</code>, <code class="ic">hermes_result</code>, and the rest of the <code class="ic">hermes_*</code> surface.</p>
+    <h2 id="polling">Polling obligation</h2>
+    <p>After <code class="ic">hermes_submit</code>, the client must retain the task id and poll to terminal state or timeout. Wait <code class="ic">30s</code> before the first status call, wait <code class="ic">120s</code> between running or pending checks, and stop at <code class="ic">600s</code> from submit.</p>
+    <p>On any terminal status, call <code class="ic">hermes_result</code> exactly once before reporting. That applies to both <code class="ic">completed</code> and <code class="ic">failed</code> tasks because the terminal payload can contain result text, error text, session metadata, and cost.</p>
 
     <div class="pager">
-      <a class="pcard" href="../introduction/"><span class="pdir">← Previous</span><span class="ptitle">Introduction</span></a>
-      <a class="pcard next" href="../first-dispatch/"><span class="pdir">Next →</span><span class="ptitle">Your first dispatch</span></a>
+      <a class="pcard" href="../bridge/"><span class="pdir">← Previous</span><span class="ptitle">Authenticated bridge</span></a>
+      <a class="pcard next" href="../tools/"><span class="pdir">Next →</span><span class="ptitle">Tool reference</span></a>
     </div>
   </main>
 
   <!-- toc -->
   <nav class="toc">
     <div class="toc-h">On this page</div>
-    <a href="#host" class="active">Bridge host setup</a>
-    <a href="#client">Client configuration</a>
-    <a href="#auth">Verify auth</a>
-    <a href="#prefixes">Client tool prefixes</a>
+    <a href="#remote-config" class="active">Remote MCP config</a>
+    <a href="#tool-names">Tool-name prefixes</a>
+    <a href="#verify">Verify from another node</a>
+    <a href="#polling">Polling obligation</a>
   </nav>
 </div>
 

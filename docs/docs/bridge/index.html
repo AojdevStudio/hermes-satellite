@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Install & connect — Hermes Docs</title>
-<meta name="description" content="Install the authenticated Hermes Satellite bridge, connect MCP clients, and verify bearer-token access from a separate tailnet node.">
+<title>Authenticated bridge — Hermes Docs</title>
+<meta name="description" content="The authenticated Streamable HTTP MCP bridge for Hermes Satellite.">
 <link rel="icon" type="image/png" href="../../assets/aoj-logo.png">
 <link rel="stylesheet" href="../../styles.css">
 <style>
@@ -122,7 +122,6 @@
 </style>
 </head>
 <body>
-
 <header class="nav">
   <a class="brand" href="../">
     <img src="../../assets/aoj-logo.png" alt="AOJ Dev Studio">
@@ -148,7 +147,7 @@
     <div class="side-group">
       <div class="gh">Getting started</div>
       <a class="side-i" href="../introduction/">Introduction</a>
-      <a class="side-i active" href="./">Install &amp; connect</a>
+      <a class="side-i" href="../install/">Install &amp; connect</a>
       <a class="side-i" href="../first-dispatch/">Your first dispatch</a>
     </div>
     <div class="side-group">
@@ -166,7 +165,7 @@
     </div>
     <div class="side-group">
       <div class="gh">MCP</div>
-      <a class="side-i" href="../bridge/">Authenticated bridge</a>
+            <a class="side-i active" href="./">Authenticated bridge</a>
       <a class="side-i" href="../clients/">Clients</a>
       <a class="side-i" href="../tools/">Tool reference</a>
     </div>
@@ -174,65 +173,47 @@
 
   <!-- content -->
   <main class="doc">
-    <div class="crumbs"><span>Getting started</span><span class="sep">/</span><span>Install &amp; connect</span></div>
-    <h1>Install &amp; connect</h1>
-    <p class="lead">Run the authenticated bridge on a private Hermes host, point each MCP client at its URL, and verify bearer-token access from a separate tailnet node before dispatching work.</p>
+    <div class="crumbs"><span>MCP</span><span class="sep">/</span><span>Authenticated bridge</span></div>
+    <h1>Authenticated bridge</h1>
+    <p class="lead">The bridge is a native Python FastMCP server over Streamable HTTP. It accepts authenticated MCP clients on a private network address, stores task state in <code class="ic">$HERMES_HOME/async_bridge.db</code>, and treats MCP initialize as the real authorization check.</p>
 
-    <h2 id="host">Bridge host setup</h2>
-    <p>On the Hermes host, run the native Python FastMCP bridge over Streamable HTTP. Bind it to a private tailnet or VPN address, not a public interface. The bridge refuses a blind <code class="ic">0.0.0.0</code> HTTP bind and requires bearer-token auth unless it is running in stdio or test mode.</p>
+    <h2 id="runtime">Native HTTP runtime</h2>
+    <p>The repository source is <code class="ic">apps/hermes-async-bridge/hermes_async_bridge.py</code>. The server uses <code class="ic">mcp.server.fastmcp.FastMCP</code> and runs <code class="ic">transport="streamable-http"</code> directly, so there is no <code class="ic">supergateway</code> or stdio wrapper in the network path.</p>
+    <p>Each submit becomes a persisted task row, then the bridge launches <code class="ic">hermes chat -q ... --pass-session-id --source tool</code>. Follow-up prompts resume the same Hermes session when the completed task has a session id.</p>
 
-    <div class="code">
-      <div class="code-bar"><span class="lang">bash</span><span class="copy" onclick="copyBlock(this)">Copy</span></div>
-      <pre><span class="tok-c"># run on the Hermes host</span>
-export HERMES_ASYNC_BRIDGE_TOKEN=<span class="tok-c">"$(openssl rand -hex 32)"</span>
-python3 apps/hermes-async-bridge/hermes_async_bridge.py</pre>
-    </div>
+    <h2 id="auth">Bearer auth boundary</h2>
+    <p>HTTP MCP calls require <code class="ic">Authorization: Bearer &lt;token&gt;</code>. The only unauthenticated modes are stdio and explicit local test mode; network HTTP without a token is rejected during server creation.</p>
+    <div class="callout"><div class="ci">i</div><div><div class="ct">Auth check</div><p><code class="ic">/healthz</code> is an unauthenticated liveness endpoint that returns <code class="ic">ok</code>. It does not prove tool access. A clean authenticated MCP initialize is the real check; an unauthenticated initialize should return 401.</p></div></div>
 
-    <p>Task state persists under <code class="ic">$HERMES_HOME/async_bridge.db</code>. Keep the token in a secret manager or local environment file and do not commit it.</p>
+    <h2 id="network">Private network placement</h2>
+    <p>Bind the bridge to an explicit tailnet, VPN, or tightly controlled LAN address. The implementation refuses a blind <code class="ic">0.0.0.0</code> or <code class="ic">::</code> HTTP bind by default because the bridge can run arbitrary Hermes work.</p>
+    <p>Use placeholder hosts in docs and public configs. Operators should rotate <code class="ic">HERMES_ASYNC_BRIDGE_TOKEN</code> or <code class="ic">HERMES_MCP_TOKEN</code> if a bearer secret is suspected to be exposed.</p>
 
-    <h2 id="client">Client configuration</h2>
-    <p>On each client machine, configure the MCP server by URL. Do not configure the bridge as a local command on the client; the client should connect to the shared Hermes host over the private network.</p>
-
-    <div class="code">
-      <div class="code-bar"><span class="lang">yaml</span><span class="copy" onclick="copyBlock(this)">Copy</span></div>
-      <pre>mcp_servers:
-  hermes_async:
-    url: <span class="tok-c">"http://&lt;bridge-host&gt;:8081/mcp"</span>
-    headers:
-      Authorization: <span class="tok-c">"Bearer ${HERMES_MCP_TOKEN}"</span>
-    timeout: 180
-    connect_timeout: 60</pre>
-    </div>
-
-    <p>The relevant fields are the bridge <code class="ic">url</code>, the <code class="ic">Authorization</code> bearer header, and the long enough <code class="ic">timeout</code> and <code class="ic">connect_timeout</code> values for MCP discovery and task operations.</p>
-
-    <h2 id="auth">Verify auth from another node</h2>
-    <p>Restart the client so MCP discovery runs, then verify auth from a separate tailnet node. The bridge host may not be able to curl its own Tailscale IP, so a second node is the meaningful test.</p>
-
-    <div class="term">
-      <div class="term-bar"><span class="tl" style="background:var(--tl-red)"></span><span class="tl" style="background:var(--tl-yellow)"></span><span class="tl" style="background:var(--tl-green)"></span><span class="m" style="margin-left:8px;font-family:var(--font-mono);font-size:12px">auth check</span></div>
-      <pre>no-token   MCP initialize  →  HTTP 401
-bearer     MCP initialize  →  HTTP 200</pre>
-    </div>
-
-    <p>A health endpoint can show that the process is alive, but only MCP initialize with the bearer token proves tool auth.</p>
-
-    <h2 id="prefixes">Client tool prefixes</h2>
-    <p>Tool names are stable at the bridge and prefixed by the client harness. In Claude Code, expect names such as <code class="ic">mcp__hermes-async__hermes_submit</code>. In Hermes Agent, expect <code class="ic">mcp_hermes_async_*</code>. The base tools remain <code class="ic">hermes_submit</code>, <code class="ic">hermes_status</code>, <code class="ic">hermes_result</code>, and the rest of the <code class="ic">hermes_*</code> surface.</p>
+    <h2 id="state">Task state and observability</h2>
+    <p>Task state persists in SQLite at <code class="ic">$HERMES_HOME/async_bridge.db</code> unless <code class="ic">HERMES_ASYNC_BRIDGE_DB</code> overrides it. The schema records tasks, MCP events, task runs, and cost snapshots. Hermes transcript source data remains in <code class="ic">$HERMES_HOME/state.db</code>.</p>
+    <table style="border-collapse:collapse;max-width:68ch;margin:0 0 22px;width:100%;font-family:var(--font-grotesk);font-size:14px;color:var(--ink-2)">
+      <thead><tr><th style="border:1.5px solid var(--ink-max);padding:10px 12px;text-align:left;background:var(--paper-2)">Table</th><th style="border:1.5px solid var(--ink-max);padding:10px 12px;text-align:left;background:var(--paper-2)">Purpose</th></tr></thead>
+      <tbody>
+        <tr><td style="border:1px solid var(--hairline-2);padding:10px 12px"><code class="ic">tasks</code></td><td style="border:1px solid var(--hairline-2);padding:10px 12px">Prompt, caller, status, result, error, session id, callback URL, and follow-up chain.</td></tr>
+        <tr><td style="border:1px solid var(--hairline-2);padding:10px 12px"><code class="ic">mcp_events</code></td><td style="border:1px solid var(--hairline-2);padding:10px 12px">Initialize, status, result, transcript, callback, and cost events for audit trails.</td></tr>
+        <tr><td style="border:1px solid var(--hairline-2);padding:10px 12px"><code class="ic">task_runs</code></td><td style="border:1px solid var(--hairline-2);padding:10px 12px">Subprocess command metadata, loop index, PID, exit code, output sizes, and errors.</td></tr>
+        <tr><td style="border:1px solid var(--hairline-2);padding:10px 12px"><code class="ic">task_costs</code></td><td style="border:1px solid var(--hairline-2);padding:10px 12px">TaskCostSnapshot records captured from Hermes session counters after terminal runs.</td></tr>
+      </tbody>
+    </table>
 
     <div class="pager">
-      <a class="pcard" href="../introduction/"><span class="pdir">← Previous</span><span class="ptitle">Introduction</span></a>
-      <a class="pcard next" href="../first-dispatch/"><span class="pdir">Next →</span><span class="ptitle">Your first dispatch</span></a>
+      <a class="pcard" href="../confidence/"><span class="pdir">← Previous</span><span class="ptitle">Confidence tiers</span></a>
+      <a class="pcard next" href="../clients/"><span class="pdir">Next →</span><span class="ptitle">Clients</span></a>
     </div>
   </main>
 
   <!-- toc -->
   <nav class="toc">
     <div class="toc-h">On this page</div>
-    <a href="#host" class="active">Bridge host setup</a>
-    <a href="#client">Client configuration</a>
-    <a href="#auth">Verify auth</a>
-    <a href="#prefixes">Client tool prefixes</a>
+    <a href="#runtime" class="active">Native HTTP runtime</a>
+    <a href="#auth">Bearer auth boundary</a>
+    <a href="#network">Private network placement</a>
+    <a href="#state">Task state and observability</a>
   </nav>
 </div>
 

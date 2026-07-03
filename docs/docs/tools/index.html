@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Install & connect — Hermes Docs</title>
-<meta name="description" content="Install the authenticated Hermes Satellite bridge, connect MCP clients, and verify bearer-token access from a separate tailnet node.">
+<title>Tool reference — Hermes Docs</title>
+<meta name="description" content="Arguments, purposes, and gotchas for every Hermes async bridge MCP tool.">
 <link rel="icon" type="image/png" href="../../assets/aoj-logo.png">
 <link rel="stylesheet" href="../../styles.css">
 <style>
@@ -122,7 +122,6 @@
 </style>
 </head>
 <body>
-
 <header class="nav">
   <a class="brand" href="../">
     <img src="../../assets/aoj-logo.png" alt="AOJ Dev Studio">
@@ -148,7 +147,7 @@
     <div class="side-group">
       <div class="gh">Getting started</div>
       <a class="side-i" href="../introduction/">Introduction</a>
-      <a class="side-i active" href="./">Install &amp; connect</a>
+      <a class="side-i" href="../install/">Install &amp; connect</a>
       <a class="side-i" href="../first-dispatch/">Your first dispatch</a>
     </div>
     <div class="side-group">
@@ -166,73 +165,73 @@
     </div>
     <div class="side-group">
       <div class="gh">MCP</div>
-      <a class="side-i" href="../bridge/">Authenticated bridge</a>
+            <a class="side-i" href="../bridge/">Authenticated bridge</a>
       <a class="side-i" href="../clients/">Clients</a>
-      <a class="side-i" href="../tools/">Tool reference</a>
+      <a class="side-i active" href="./">Tool reference</a>
     </div>
   </aside>
 
   <!-- content -->
   <main class="doc">
-    <div class="crumbs"><span>Getting started</span><span class="sep">/</span><span>Install &amp; connect</span></div>
-    <h1>Install &amp; connect</h1>
-    <p class="lead">Run the authenticated bridge on a private Hermes host, point each MCP client at its URL, and verify bearer-token access from a separate tailnet node before dispatching work.</p>
+    <div class="crumbs"><span>MCP</span><span class="sep">/</span><span>Tool reference</span></div>
+    <h1>Tool reference</h1>
+    <p class="lead">The bridge exposes ten <code class="ic">hermes_*</code> tools. Use them as a dispatch and verification protocol: submit work, poll to terminal state, fetch the terminal result once, pull transcript evidence, decompose claims, and use corrective follow-ups only for completed resumable sessions.</p>
 
-    <h2 id="host">Bridge host setup</h2>
-    <p>On the Hermes host, run the native Python FastMCP bridge over Streamable HTTP. Bind it to a private tailnet or VPN address, not a public interface. The bridge refuses a blind <code class="ic">0.0.0.0</code> HTTP bind and requires bearer-token auth unless it is running in stdio or test mode.</p>
+    <h2 id="table">Bridge tools</h2>
+    <table style="border-collapse:collapse;max-width:68ch;margin:0 0 22px;width:100%;font-family:var(--font-grotesk);font-size:14px;color:var(--ink-2)">
+      <thead><tr><th style="border:1.5px solid var(--ink-max);padding:10px 12px;text-align:left;background:var(--paper-2)">Tool</th><th style="border:1.5px solid var(--ink-max);padding:10px 12px;text-align:left;background:var(--paper-2)">Args</th><th style="border:1.5px solid var(--ink-max);padding:10px 12px;text-align:left;background:var(--paper-2)">Purpose</th></tr></thead>
+      <tbody>
+        <tr><td style="border:1px solid var(--hairline-2);padding:10px 12px"><code class="ic">hermes_submit</code></td><td style="border:1px solid var(--hairline-2);padding:10px 12px"><code class="ic">(prompt, caller[, callback_url])</code></td><td style="border:1px solid var(--hairline-2);padding:10px 12px">Start a Hermes task on the bridge host and return a task id.</td></tr>
+        <tr><td style="border:1px solid var(--hairline-2);padding:10px 12px"><code class="ic">hermes_status</code></td><td style="border:1px solid var(--hairline-2);padding:10px 12px"><code class="ic">(task_id)</code></td><td style="border:1px solid var(--hairline-2);padding:10px 12px">Read task status while the client poll loop is active.</td></tr>
+        <tr><td style="border:1px solid var(--hairline-2);padding:10px 12px"><code class="ic">hermes_result</code></td><td style="border:1px solid var(--hairline-2);padding:10px 12px"><code class="ic">(task_id)</code></td><td style="border:1px solid var(--hairline-2);padding:10px 12px">Fetch the terminal payload, including result, error, session metadata, and the latest cost block.</td></tr>
+        <tr><td style="border:1px solid var(--hairline-2);padding:10px 12px"><code class="ic">hermes_respond</code></td><td style="border:1px solid var(--hairline-2);padding:10px 12px"><code class="ic">(task_id, prompt)</code></td><td style="border:1px solid var(--hairline-2);padding:10px 12px">Send a corrective prompt that resumes the completed task session and creates a follow-up task.</td></tr>
+        <tr><td style="border:1px solid var(--hairline-2);padding:10px 12px"><code class="ic">hermes_cancel</code></td><td style="border:1px solid var(--hairline-2);padding:10px 12px"><code class="ic">(task_id)</code></td><td style="border:1px solid var(--hairline-2);padding:10px 12px">Request cancellation for a queued or running task.</td></tr>
+        <tr><td style="border:1px solid var(--hairline-2);padding:10px 12px"><code class="ic">hermes_list</code></td><td style="border:1px solid var(--hairline-2);padding:10px 12px"><code class="ic">()</code></td><td style="border:1px solid var(--hairline-2);padding:10px 12px">List recent bridge tasks and their high-level status.</td></tr>
+        <tr><td style="border:1px solid var(--hairline-2);padding:10px 12px"><code class="ic">hermes_sessions</code></td><td style="border:1px solid var(--hairline-2);padding:10px 12px"><code class="ic">()</code></td><td style="border:1px solid var(--hairline-2);padding:10px 12px">List recent task sessions that have Hermes session ids.</td></tr>
+        <tr><td style="border:1px solid var(--hairline-2);padding:10px 12px"><code class="ic">hermes_transcript</code></td><td style="border:1px solid var(--hairline-2);padding:10px 12px"><code class="ic">(session_id)</code></td><td style="border:1px solid var(--hairline-2);padding:10px 12px">Export a Hermes session as T2 jsonl for evidence review.</td></tr>
+        <tr><td style="border:1px solid var(--hairline-2);padding:10px 12px"><code class="ic">hermes_decompose</code></td><td style="border:1px solid var(--hairline-2);padding:10px 12px"><code class="ic">(session_id or transcript, original_prompt)</code></td><td style="border:1px solid var(--hairline-2);padding:10px 12px">Convert a transcript and dispatch prompt into AtomicClaim[] for verification.</td></tr>
+        <tr><td style="border:1px solid var(--hairline-2);padding:10px 12px"><code class="ic">hermes_task_cost</code></td><td style="border:1px solid var(--hairline-2);padding:10px 12px"><code class="ic">(task_id)</code></td><td style="border:1px solid var(--hairline-2);padding:10px 12px">Return the latest TaskCostSnapshot, or history when supported by the bridge.</td></tr>
+      </tbody>
+    </table>
 
-    <div class="code">
-      <div class="code-bar"><span class="lang">bash</span><span class="copy" onclick="copyBlock(this)">Copy</span></div>
-      <pre><span class="tok-c"># run on the Hermes host</span>
-export HERMES_ASYNC_BRIDGE_TOKEN=<span class="tok-c">"$(openssl rand -hex 32)"</span>
-python3 apps/hermes-async-bridge/hermes_async_bridge.py</pre>
-    </div>
-
-    <p>Task state persists under <code class="ic">$HERMES_HOME/async_bridge.db</code>. Keep the token in a secret manager or local environment file and do not commit it.</p>
-
-    <h2 id="client">Client configuration</h2>
-    <p>On each client machine, configure the MCP server by URL. Do not configure the bridge as a local command on the client; the client should connect to the shared Hermes host over the private network.</p>
-
-    <div class="code">
-      <div class="code-bar"><span class="lang">yaml</span><span class="copy" onclick="copyBlock(this)">Copy</span></div>
-      <pre>mcp_servers:
-  hermes_async:
-    url: <span class="tok-c">"http://&lt;bridge-host&gt;:8081/mcp"</span>
-    headers:
-      Authorization: <span class="tok-c">"Bearer ${HERMES_MCP_TOKEN}"</span>
-    timeout: 180
-    connect_timeout: 60</pre>
-    </div>
-
-    <p>The relevant fields are the bridge <code class="ic">url</code>, the <code class="ic">Authorization</code> bearer header, and the long enough <code class="ic">timeout</code> and <code class="ic">connect_timeout</code> values for MCP discovery and task operations.</p>
-
-    <h2 id="auth">Verify auth from another node</h2>
-    <p>Restart the client so MCP discovery runs, then verify auth from a separate tailnet node. The bridge host may not be able to curl its own Tailscale IP, so a second node is the meaningful test.</p>
-
-    <div class="term">
-      <div class="term-bar"><span class="tl" style="background:var(--tl-red)"></span><span class="tl" style="background:var(--tl-yellow)"></span><span class="tl" style="background:var(--tl-green)"></span><span class="m" style="margin-left:8px;font-family:var(--font-mono);font-size:12px">auth check</span></div>
-      <pre>no-token   MCP initialize  →  HTTP 401
-bearer     MCP initialize  →  HTTP 200</pre>
-    </div>
-
-    <p>A health endpoint can show that the process is alive, but only MCP initialize with the bearer token proves tool auth.</p>
-
-    <h2 id="prefixes">Client tool prefixes</h2>
-    <p>Tool names are stable at the bridge and prefixed by the client harness. In Claude Code, expect names such as <code class="ic">mcp__hermes-async__hermes_submit</code>. In Hermes Agent, expect <code class="ic">mcp_hermes_async_*</code>. The base tools remain <code class="ic">hermes_submit</code>, <code class="ic">hermes_status</code>, <code class="ic">hermes_result</code>, and the rest of the <code class="ic">hermes_*</code> surface.</p>
+    <h2 id="gotchas">Key gotchas</h2>
+    <h3 id="hermes-submit">hermes_submit</h3>
+    <p><code class="ic">hermes_submit(prompt, caller[, callback_url])</code> — Start a Hermes task on the bridge host and return a task id. Submit once per scoped prompt. Include a checkable acceptance block and a caller string so the task can be audited.</p>
+    <h3 id="hermes-status">hermes_status</h3>
+    <p><code class="ic">hermes_status(task_id)</code> — Read task status while the client poll loop is active. Polling is idempotent, but the schedule is not optional: first check after 30 seconds, then 120 seconds between active checks, with a 600-second cap.</p>
+    <h3 id="hermes-result">hermes_result</h3>
+    <p><code class="ic">hermes_result(task_id)</code> — Fetch the terminal payload, including result, error, session metadata, and the latest cost block. Call exactly once after a terminal state. Do not skip failed tasks; their error and partial result are still evidence.</p>
+    <h3 id="hermes-respond">hermes_respond</h3>
+    <p><code class="ic">hermes_respond(task_id, prompt)</code> — Send a corrective prompt that resumes the completed task session and creates a follow-up task. Use it only when the original task completed with a session id. Never respond to failed tasks; there is no resumable session.</p>
+    <h3 id="hermes-cancel">hermes_cancel</h3>
+    <p><code class="ic">hermes_cancel(task_id)</code> — Request cancellation for a queued or running task. Cancellation is best effort and only applies before the task reaches a terminal state.</p>
+    <h3 id="hermes-list">hermes_list</h3>
+    <p><code class="ic">hermes_list()</code> — List recent bridge tasks and their high-level status. Use it for queue awareness, not as transcript evidence. It is summary state from the async bridge database.</p>
+    <h3 id="hermes-sessions">hermes_sessions</h3>
+    <p><code class="ic">hermes_sessions()</code> — List recent task sessions that have Hermes session ids. This is T1 metadata. Fetch the transcript before treating claims as evidence.</p>
+    <h3 id="hermes-transcript">hermes_transcript</h3>
+    <p><code class="ic">hermes_transcript(session_id)</code> — Export a Hermes session as T2 jsonl for evidence review. A session id is required. Failed tasks usually have no session id, so transcript evidence may be unavailable.</p>
+    <h3 id="hermes-decompose">hermes_decompose</h3>
+    <p><code class="ic">hermes_decompose(session_id or transcript, original_prompt)</code> — Convert a transcript and dispatch prompt into AtomicClaim[] for verification. Provide the original prompt. Without it, user_requirement claims from the acceptance block are missing.</p>
+    <h3 id="hermes-task-cost">hermes_task_cost</h3>
+    <p><code class="ic">hermes_task_cost(task_id)</code> — Return the latest TaskCostSnapshot, or history when supported by the bridge. Use it when result cost is missing or when a follow-up loop needs cost review. Do not sum snapshots unless the bridge explicitly documents cumulative semantics.</p>
 
     <div class="pager">
-      <a class="pcard" href="../introduction/"><span class="pdir">← Previous</span><span class="ptitle">Introduction</span></a>
-      <a class="pcard next" href="../first-dispatch/"><span class="pdir">Next →</span><span class="ptitle">Your first dispatch</span></a>
+      <a class="pcard" href="../clients/"><span class="pdir">← Previous</span><span class="ptitle">Clients</span></a>
+      <a class="pcard next" href="../../"><span class="pdir">Next →</span><span class="ptitle">Hermes Satellite home</span></a>
     </div>
   </main>
 
   <!-- toc -->
   <nav class="toc">
     <div class="toc-h">On this page</div>
-    <a href="#host" class="active">Bridge host setup</a>
-    <a href="#client">Client configuration</a>
-    <a href="#auth">Verify auth</a>
-    <a href="#prefixes">Client tool prefixes</a>
+    <a href="#table" class="active">Bridge tools</a>
+    <a href="#gotchas">Key gotchas</a>
+    <a href="#hermes-submit" class="sub">hermes_submit</a>
+    <a href="#hermes-result" class="sub">hermes_result</a>
+    <a href="#hermes-respond" class="sub">hermes_respond</a>
+    <a href="#hermes-decompose" class="sub">hermes_decompose</a>
+    <a href="#hermes-task-cost" class="sub">hermes_task_cost</a>
   </nav>
 </div>
 

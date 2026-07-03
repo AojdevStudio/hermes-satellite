@@ -1,6 +1,6 @@
 ---
 name: hermes-dispatch
-description: Dispatch a task to Hermes over the async MCP bridge, then verify Hermes's result as an independent satellite verifier. Use when dispatching work to Hermes ("send this to Hermes"), running the Hermes work queue, or acting as the satellite verifier of a Hermes result. Reach for it whenever you call hermes_submit or hermes_respond on the hermes-async bridge.
+description: Dispatch a task to Hermes over the async MCP bridge, optionally run the background watcher, then verify Hermes's result as an independent satellite verifier. Use when dispatching work to Hermes ("send this to Hermes"), running the Hermes work queue, or acting as the satellite verifier of a Hermes result. Reach for it whenever you call hermes_submit or hermes_respond on the hermes-async bridge.
 ---
 
 You are the **dispatcher** and the **satellite verifier**, never the worker. Hermes on the bridge host executes; you write a checkable prompt, poll, then **oracle** every claim Hermes makes against tool evidence before you trust a word of it. Two leading ideas govern the whole skill:
@@ -8,7 +8,7 @@ You are the **dispatcher** and the **satellite verifier**, never the worker. Her
 - **Scoped dispatch**: you do NOT do the task locally in parallel. You craft the prompt so Hermes can finish it, then you verify. No "I'll just edit this here while Hermes also runs."
 - **Evidence tier**: the final result text is a *claim*, not proof. Confidence is capped by the strength of evidence you can actually inspect (T0 text only is weak; T2 full transcript is strong). A verify pass that stops at the result paragraph grades PARTIAL at best.
 
-The loop is: **submit → poll → pull evidence → oracle → report → reloop or finish.** Run it in order.
+The loop is: **submit -> poll -> pull evidence -> oracle -> report -> reloop or finish.** Run it in order.
 
 ## Step 0: Preflight the bridge
 
@@ -42,6 +42,26 @@ Call `hermes_submit(prompt, caller)`. Save `task_id` + `submit_time`. One `task_
 Sleep 30, then `hermes_status(task_id)`. On `completed` or `failed`, go to Step 3. On `running`/`pending`: if `now - submit_time >= 600` stop as timeout, else sleep 120 and re-check. Never poll faster than 30s; never past 600s. The classic failure is `failed` without ever seeing `completed` because of too few polls before the cap. If the session cannot block in a loop, use ScheduleWakeup: +30s, then +120s per re-check, same terminal rules.
 
 **Done when:** a terminal status or the 600s timeout.
+
+## Async dispatch (fire-and-forget + interrupter)
+
+This is an additive branch after Step 2, not a replacement for the synchronous polling contract. Use it when the harness can keep working while a background process watches Hermes presence.
+
+After `hermes_submit` returns a `task_id`, launch the watcher instead of blocking on the Step 2 polling loop:
+
+- Claude Code: run `python3 tools/hermes_watch.py <task_id>` from `skills/hermes-dispatch/` with Bash `run_in_background`, or use a Monitor primitive.
+- Other harnesses: run `nohup python3 tools/hermes_watch.py <task_id> > hermes-watch-<task_id>.log 2>&1 &` from `skills/hermes-dispatch/`, then `tail -f hermes-watch-<task_id>.log`.
+
+The watcher interrupts ONLY on:
+
+- `done`: terminal state with `hermes_result`.
+- `stuck`: past the 600s cap.
+- `not-responding`: 5 consecutive failed checks, with a `RECOVERED` follow-up when contact resumes.
+- Sparse still-alive heartbeats.
+
+Design principle: presence = free code, judgment = LLM only at result/decision points. Polling costs zero tokens. When the watcher prints a terminal or decision line, return to Step 3 and verify the result exactly as usual.
+
+**Done when:** the watcher is running for the `task_id`, or the synchronous Step 2 branch produced a terminal status or timeout.
 
 ## Step 3: Pull evidence (never trust the paragraph)
 

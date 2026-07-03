@@ -2,6 +2,41 @@
 
 Disclosed reference for [`SKILL.md`](SKILL.md). Load when you reach the oracle, cost, or failure-handling steps. Everything here is normative from `specs/hermes-satellite-verify.md`.
 
+## Background watcher
+
+`tools/hermes_watch.py` is the fire-and-forget interrupter for the async dispatch branch. It polls Hermes in a background process and prints one line only when the foreground agent should know something changed.
+
+Invocation:
+
+```bash
+HERMES_MCP_URL=http://<bridge-host>:8081/mcp HERMES_MCP_TOKEN=<token> python3 tools/hermes_watch.py <task_id>
+```
+
+Rules:
+
+- `HERMES_MCP_URL` is resolved from the environment first, then `~/.hermes/.env`. Missing URL is a local configuration error and exits non-zero.
+- `HERMES_MCP_TOKEN` is resolved from the environment first, then `~/.hermes/.env`.
+- `task_id` comes only from `argv[1]`. Missing or empty task id prints `no task_id to watch` and exits 0.
+- The watcher makes no LLM, inference, or network-AI calls. Its only network path is JSON-RPC HTTP to the bridge.
+
+Event vocabulary:
+
+| Event | Meaning | Agent action |
+|-------|---------|--------------|
+| WATCHING | The watcher started for a task id. | No action. |
+| heartbeat, still-working | Hermes is still reachable and non-terminal. Emitted sparsely. | No action. |
+| NOT RESPONDING | Five consecutive status checks failed. This is a sustained bridge outage, not one relay blip. | Wait for RECOVERED or inspect the bridge. |
+| RECOVERED | Status checks resumed after NOT RESPONDING. | No action unless the next event is terminal. |
+| DONE/FAILED, terminal | A terminal status was observed and `hermes_result` was fetched once. | Continue at [`SKILL.md`](SKILL.md) Step 3. |
+| STUCK | The task passed the 600s cap with slack and no terminal result. | Pull the result if available and treat as timeout evidence. |
+
+Polling math follows [`hermes-polling.md`](hermes-polling.md): 30s initial sleep, 120s interval, 600s hard cap. The watcher uses `INITIAL=30`, `INTERVAL=120`, and `STUCK=630` so it has one interval of slack past the cap before surfacing STUCK. Heartbeats are emitted at elapsed 120s, 300s, and 480s, each at most once.
+
+Bridge gotchas:
+
+1. MCP requires `initialize` plus `notifications/initialized` before any `tools/call`. Calls are rejected without the handshake.
+2. Tool results can be double-encoded. The bridge returns `{"result": "<json string>"}` inside the parsed payload, so clients must decode the tool payload and then JSON-decode `payload["result"]` again when it is a string.
+
 ## Evidence tiers (normative)
 
 | Tier | Source | Verifier can prove | Confidence cap |
@@ -14,7 +49,7 @@ Disclosed reference for [`SKILL.md`](SKILL.md). Load when you reach the oracle, 
 Rules:
 
 - Every `## Report` MUST emit a machine-parseable `EVIDENCE_TIER: T0|T1|T2|T3` line. A report missing it is rejected (the parser must not default it).
-- Confidence is clamped in code after parsing: `confidence = min(reported, capFor(tier))`. Caps: T0 → PARTIAL, T1 → VERIFIED, T2/T3 → PERFECT-eligible.
+- Confidence is clamped in code after parsing: `confidence = min(reported, capFor(tier))`. Caps: T0 -> PARTIAL, T1 -> VERIFIED, T2/T3 -> PERFECT-eligible.
 - T2 is required for production verify loops on code or filesystem tasks. T1 is only acceptable for smoke tests.
 - "Code/filesystem task" is detected deterministically: if `hermes_decompose` yields any `tool_execution` atom whose `toolName` is in the write/fs/exec set, the task requires T2, and VERIFIED/PERFECT is forbidden on T0/T1 for that task.
 
@@ -95,7 +130,7 @@ Report `### Cost` format:
 
 ```markdown
 ### Cost
-- Task: <task_id> · loop <n>
+- Task: <task_id> - loop <n>
 - Model: <provider>/<model>
 - Tokens: <prompt> + <completion> = <total>
 - Estimated: $<estimated_usd> (<source>)

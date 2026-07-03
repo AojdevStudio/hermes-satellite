@@ -6,6 +6,7 @@
   "scripts": {
     "changeset": "changeset",
     "changeset:status": "changeset status",
+    "docs:validate": "node scripts/validate-docs.mjs",
     "version-packages": "changeset version"
   },
   "devDependencies": {

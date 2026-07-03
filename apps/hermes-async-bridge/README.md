@@ -48,7 +48,7 @@ Deployment checklist:
 
 1. `mkdir -p ~/.hermes/secrets && chmod 700 ~/.hermes/secrets`.
 2. Generate `secrets.token_urlsafe(48)` into
-   `~/.hermes/secrets/hermes_async_bridge_token` and `chmod 600` the file.
+   `<local-secret-file>` and `chmod 600` the file.
 3. Mirror the same value to Bitwarden Secrets Manager, e.g. key
    `HERMES_ASYNC_BRIDGE_TOKEN`, under the appropriate machine/agent secrets
    project.
@@ -92,7 +92,7 @@ Live auth smoke tests must cover both directions:
 
 - Negative: an unauthenticated MCP request to `/mcp` returns 401/403. If it
   returns a normal MCP response, auth is not actually enforced.
-- Positive: the same request with `Authorization: Bearer <token>` initializes
+- Positive: the same request with `Authorization: Bearer ${HERMES_MCP_TOKEN}` initializes
   successfully.
 - Then run a small authenticated `hermes_submit` PONG task and verify
   `hermes_result`, `hermes_transcript`, and `hermes_task_cost`.

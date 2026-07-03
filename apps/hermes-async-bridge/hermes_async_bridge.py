@@ -861,8 +861,8 @@ def write_state_db_transcript(session_id: str, out_path: Path) -> None:
 
 def decompose_with_repo(transcript_jsonl: str, original_prompt: str) -> dict[str, Any]:
     verifier_dir = REPO_ROOT / "apps" / "verifier"
-    dist_decompose = verifier_dir / "dist" / "hermes" / "decompose.js"
-    if not dist_decompose.exists():
+    dist_decompose_cli = verifier_dir / "dist" / "hermes" / "decompose-cli.js"
+    if not dist_decompose_cli.exists():
         build = subprocess.run(["pnpm", "run", "typecheck"], cwd=str(verifier_dir), stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=120)
         if build.returncode != 0:
             raise RuntimeError(f"pnpm run typecheck failed: {build.stderr or build.stdout}")
@@ -872,20 +872,8 @@ def decompose_with_repo(transcript_jsonl: str, original_prompt: str) -> dict[str
     with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8") as handle:
         json.dump({"transcriptJsonl": transcript_jsonl, "originalPrompt": original_prompt}, handle)
         input_path = handle.name
-    script = f"""
-import fs from 'node:fs';
-import {{ decomposeTranscript }} from {json.dumps(dist_decompose.as_uri())};
-const input = JSON.parse(fs.readFileSync(process.argv[1], 'utf8'));
-const firstLine = input.transcriptJsonl.split(/\r?\n/).find(Boolean) ?? '{{}}';
-const exported = JSON.parse(firstLine);
-const transcript = {{
-  sessionId: exported.session_id ?? exported.id ?? exported.sessionId ?? '',
-  messages: exported.messages ?? [],
-}};
-console.log(JSON.stringify(decomposeTranscript({{ transcript, originalPrompt: input.originalPrompt ?? '' }})));
-"""
     try:
-        proc = subprocess.run(["node", "--input-type=module", "-e", script, input_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=60)
+        proc = subprocess.run(["node", str(dist_decompose_cli), input_path], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=60)
     finally:
         try:
             os.unlink(input_path)

@@ -1,0 +1,8 @@
+[allowlist]
+description = "Allow empty API key placeholders in the public example environment file"
+regexes = [
+  '''(?m)^[A-Z0-9_]+_API_KEY=$''',
+]
+paths = [
+  '''^\.env\.sample$''',
+]

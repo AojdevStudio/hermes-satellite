@@ -149,11 +149,73 @@ def _json_dumps(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
 
 
+def _iter_schema_columns() -> Iterable[tuple[str, list[tuple[str, str]]]]:
+    """Yield table names and declared column affinities from _SCHEMA."""
+    create_table_re = re.compile(
+        r"CREATE\s+TABLE\s+IF\s+NOT\s+EXISTS\s+(\w+)\s*\((.*?)\);",
+        re.IGNORECASE | re.DOTALL,
+    )
+    column_constraint_keywords = {
+        "PRIMARY",
+        "NOT",
+        "NULL",
+        "DEFAULT",
+        "COLLATE",
+        "REFERENCES",
+        "CHECK",
+        "UNIQUE",
+        "GENERATED",
+        "AS",
+    }
+    table_constraint_keywords = {"CONSTRAINT", "PRIMARY", "FOREIGN", "UNIQUE", "CHECK"}
+
+    for table_name, body in create_table_re.findall(_SCHEMA):
+        columns: list[tuple[str, str]] = []
+        for raw_line in body.splitlines():
+            line = raw_line.strip().rstrip(",")
+            if not line or line.startswith("--"):
+                continue
+            parts = line.split()
+            if not parts:
+                continue
+            first_token = parts[0].strip('"`[]')
+            if first_token.split("(", 1)[0].upper() in table_constraint_keywords:
+                continue
+            column_name = first_token
+            type_tokens: list[str] = []
+            for token in parts[1:]:
+                if token.upper() in column_constraint_keywords:
+                    break
+                type_tokens.append(token)
+            columns.append((column_name, " ".join(type_tokens) or "TEXT"))
+        yield table_name, columns
+
+
+def _reconcile_schema(conn: sqlite3.Connection) -> None:
+    """Add columns missing from older async_bridge.db files.
+
+    CREATE TABLE IF NOT EXISTS does not alter existing tables, so deployed
+    databases that predate newer nullable columns need an idempotent reconcile.
+    """
+    for table_name, declared_columns in _iter_schema_columns():
+        existing_columns = {
+            row["name"] if isinstance(row, sqlite3.Row) else row[1]
+            for row in conn.execute(f"PRAGMA table_info({table_name})")
+        }
+        for column_name, column_type in declared_columns:
+            if column_name in existing_columns:
+                continue
+            conn.execute(f"ALTER TABLE {table_name} ADD COLUMN {column_name} {column_type}")
+            existing_columns.add(column_name)
+    conn.commit()
+
+
 def get_db() -> sqlite3.Connection:
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(str(DB_PATH), timeout=30)
     conn.row_factory = sqlite3.Row
     conn.executescript(_SCHEMA)
+    _reconcile_schema(conn)
     return conn
 
 

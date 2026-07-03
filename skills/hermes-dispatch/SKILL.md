@@ -29,6 +29,17 @@ Keep the dispatched task small and scoped; large multi-part prompts hit the 600s
 
 Call `hermes_submit(prompt, caller)`. Save `task_id` + `submit_time`. One `task_id` per poll chain unless the user explicitly asked for parallel tasks.
 
+### Swarm dispatch (delegation-aware)
+
+Hermes can spawn isolated child agents via `delegate_task` — each with its own conversation, terminal session, and toolset, running concurrently up to the host's `delegation.max_concurrent_children`. Exploit this instead of drip-feeding sequential bridge tasks:
+
+- **When the work splits into 3+ independent slices, submit ONE task that instructs Hermes to fan out**, not N serial submits. Parallel children are how big scope fits inside the 600s cap that a serial mega-prompt would blow; only child summaries return to the parent, so its context stays small.
+- Add a `## Delegation plan` section to the prompt: one line per slice. Each child brief must be **self-contained** — children share no context with the parent or each other, so every path, constraint, and template goes into the slice text.
+- One acceptance bullet per slice, and each bullet must name a **world-checkable artifact** (a file, a commit, command output written to a path). Children's tool calls never reach your T2 transcript — if a child leaves nothing in the world, the verifier can't prove its work happened.
+- Slices must be truly independent: no ordering dependencies, no two children editing the same file. If slices need sequencing or review gates between them, keep separate bridge tasks — a swarm gives you one verify gate at the end, serial dispatch gives you one after each step.
+- Delegation is an expensive mode: declare it in the acceptance block (same rule as MoA) so the cost cross-check against `expensiveToolsUsed` works.
+- It is still ONE `task_id` — poll and watch exactly as below. Mechanics, host config knobs, and the child-evidence rule: [`reference.md`](reference.md).
+
 **Done when:** a `task_id` is returned.
 
 ## Step 2: Poll (the contract, enforced in code, not by vibe)
@@ -82,6 +93,7 @@ Oracle rules per claim kind:
 - **assistant_assertion**: must cite a tool row or external oracle. Never PASS on prose alone; it cannot raise confidence or count toward PERFECT.
 - **user_requirement** (your `## Acceptance` bullets): FAIL if no supporting tool evidence exists.
 - **structured_assistant_claim**: cap confidence at 0.55; never satisfies PERFECT unless the transcript proves a forced output mechanism.
+- **Delegated (swarm) work**: the parent T2 transcript proves only that `delegate_task` ran and what summary came back. A child's summary is assertion-grade, never `tool_execution` evidence. Oracle every swarm claim against world state (read the artifact, run the check read-only); a `user_requirement` resting solely on a child summary is UNSURE at best.
 
 Confidence is clamped by evidence tier in code: **T0 caps at PARTIAL, T1 caps at VERIFIED, T2/T3 are PERFECT-eligible.** Any code or filesystem task (any write/fs/exec `tool_execution` atom) REQUIRES T2; VERIFIED or PERFECT is forbidden on T0/T1 for it.
 

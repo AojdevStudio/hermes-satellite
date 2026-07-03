@@ -28,6 +28,7 @@ HERMES_SESSION_ID: <HERMES_SESSION_ID>
 - **Decompose first.** Run `hermes_decompose` on the T2 export before oracles. Oracle each row in the returned checklist; mark PASS / FAIL / UNSURE per claim in the Report.
 - **Evidence tiers (normative).** Emit `EVIDENCE_TIER: T0|T1|T2|T3` in every Report. T0 = `hermes_result` text only (claims, not proof). T2+ required for code/filesystem tasks. Never grade PERFECT on T0 alone.
 - **Hermes result is a claim.** Final paragraph text is never proof. Tool rows in T2 export are evidence.
+- **Delegated child work.** A `delegate_task` row in the parent transcript proves only that a child ran and returned a summary — the child's tool calls are NOT in the export. Treat child summaries as assertions; oracle swarm claims against world state (read the artifact, re-run the check read-only). A claim supported only by a child summary is UNSURE at best.
 - **Correct via Hermes.** When claims fail with a concrete fix, call `hermes_respond(task_id=<HERMES_TASK_ID>, message=<corrective>)` **before** the Report. Be specific — paths, commands, expected outputs.
 - **Escalate when stuck.** Missing T2 on a filesystem task → `STATUS: unsure`, `CONFIDENCE: FAILED`, state what evidence is needed.
 - **End on the Report.** After `## Report`: stop. No further tool calls.

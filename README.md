@@ -81,7 +81,13 @@ python3 apps/hermes-async-bridge/hermes_async_bridge.py
 
 The bridge refuses a blind `0.0.0.0` HTTP bind, requires the bearer token unless in stdio/test mode, and persists task state in `$HERMES_HOME/async_bridge.db`.
 
-**On any client machine** - point an MCP client at it by URL, not a local command:
+**On any client machine** - point an MCP client at it by URL, not a local command. Export `HERMES_MCP_TOKEN` first, then use the one-liner for your client; the YAML remains for clients configured by file:
+
+```bash
+export HERMES_MCP_TOKEN="<bridge-token>"
+claude mcp add --transport http hermes-async http://<bridge-host>:8081/mcp --header "Authorization: Bearer ${HERMES_MCP_TOKEN}"
+codex mcp add hermes-async --url http://<bridge-host>:8081/mcp --bearer-token-env-var HERMES_MCP_TOKEN
+```
 
 ```yaml
 mcp_servers:

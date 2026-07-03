@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Your first dispatch — Hermes Docs</title>
-<meta name="description" content="Submit a scoped task, poll it by contract, fetch transcript evidence, decompose claims, and verify or reloop with Hermes.">
+<title>Poll for status — Hermes Docs</title>
+<meta name="description" content="The bounded Hermes Satellite polling contract: 30 second initial wait, 120 second interval, 600 second cap, terminal status handling, and the zero-token watcher alternative.">
 <link rel="icon" type="image/png" href="../../assets/aoj-logo.png">
 <link rel="stylesheet" href="../../styles.css">
 <style>
@@ -143,18 +143,18 @@
 
 <div class="shell">
   <!-- sidebar -->
-  <aside class="side">
+    <aside class="side">
     <a class="wm" href="../" style="display:block;font-family:var(--font-display);font-size:21px;font-weight:500;letter-spacing:-.01em;color:var(--ink-max);margin:0 0 22px 10px">Hermes Satellite</a>
     <div class="side-group">
       <div class="gh">Getting started</div>
       <a class="side-i" href="../introduction/">Introduction</a>
       <a class="side-i" href="../install/">Install &amp; connect</a>
-      <a class="side-i active" href="./">Your first dispatch</a>
+      <a class="side-i" href="../first-dispatch/">Your first dispatch</a>
     </div>
     <div class="side-group">
       <div class="gh">Execution</div>
       <a class="side-i" href="../">Dispatch a task</a>
-      <a class="side-i" href="../poll/">Poll for status</a>
+      <a class="side-i active" href="./">Poll for status</a>
       <a class="side-i" href="../transcript/">Fetch transcript</a>
       <a class="side-i" href="../shared-machine/">Shared machine</a>
     </div>
@@ -174,85 +174,73 @@
 
   <!-- content -->
   <main class="doc">
-    <div class="crumbs"><span>Getting started</span><span class="sep">/</span><span>Your first dispatch</span></div>
-    <h1>Your first dispatch</h1>
-    <p class="lead">Submit one scoped task with a testable acceptance block, poll it by contract, pull transcript evidence, decompose the claims, and reloop only through Hermes when verification fails.</p>
+    <div class="crumbs"><span>Execution</span><span class="sep">/</span><span>Poll for status</span></div>
+    <h1>Poll for status</h1>
+    <p class="lead">After <code class="ic">hermes_submit</code> returns a task id, polling is a bounded client contract: wait first, check at a fixed interval, stop at the hard cap, and fetch the result exactly when the task becomes terminal.</p>
 
-    <h2 id="submit">Submit a checkable prompt</h2>
-    <p>You are the dispatcher and satellite verifier, not the worker. Keep the task small enough to fit the polling window, then call <code class="ic">hermes_submit</code> with a prompt that contains a <code class="ic">## Acceptance</code> block. Each bullet should be exactly one testable requirement, because those bullets become deterministic user-requirement claims during verification.</p>
+    <h2 id="contract">The polling contract</h2>
+    <p>Save the <code class="ic">task_id</code> and submit time from <code class="ic">hermes_submit</code>. Sleep 30 seconds before the first <code class="ic">hermes_status</code> call, then poll every 120 seconds while the task is non-terminal. Stop at 600 seconds from submit.</p>
+
+    <table style="border-collapse:collapse;max-width:68ch;margin:0 0 22px;width:100%;font-family:var(--font-grotesk);font-size:14px;color:var(--ink-2)">
+      <thead><tr><th style="border:1.5px solid var(--ink-max);padding:10px 12px;text-align:left;background:var(--paper-2)">Constant</th><th style="border:1.5px solid var(--ink-max);padding:10px 12px;text-align:left;background:var(--paper-2)">Value</th><th style="border:1.5px solid var(--ink-max);padding:10px 12px;text-align:left;background:var(--paper-2)">Reason</th></tr></thead>
+      <tbody>
+        <tr><td style="border:1px solid var(--hairline-2);padding:10px 12px"><code class="ic">POLL_INITIAL_SEC</code></td><td style="border:1px solid var(--hairline-2);padding:10px 12px">30 seconds</td><td style="border:1px solid var(--hairline-2);padding:10px 12px">Catches short tasks without hammering the bridge.</td></tr>
+        <tr><td style="border:1px solid var(--hairline-2);padding:10px 12px"><code class="ic">POLL_INTERVAL_SEC</code></td><td style="border:1px solid var(--hairline-2);padding:10px 12px">120 seconds</td><td style="border:1px solid var(--hairline-2);padding:10px 12px">Gives about five checks inside the 600-second window.</td></tr>
+        <tr><td style="border:1px solid var(--hairline-2);padding:10px 12px"><code class="ic">MAX_WAIT_SEC</code></td><td style="border:1px solid var(--hairline-2);padding:10px 12px">600 seconds</td><td style="border:1px solid var(--hairline-2);padding:10px 12px">Matches the Hermes task timeout; past that, stop chasing.</td></tr>
+      </tbody>
+    </table>
 
     <div class="code">
-      <div class="code-bar"><span class="lang">markdown</span><span class="copy" onclick="copyBlock(this)">Copy</span></div>
-      <pre>Implement the requested documentation change and verify it locally.
+      <div class="code-bar"><span class="lang">text</span><span class="copy" onclick="copyBlock(this)">Copy</span></div>
+      <pre>sleep 30
+status = hermes_status(task_id)
 
-## Acceptance
-- The requested file exists at the expected path.
-- The page contains the required real Hermes tool names.
-- The final response includes command output proving the checks passed.</pre>
+if status is completed or failed:
+  result = hermes_result(task_id)
+else if elapsed &lt; 600:
+  sleep 120 and call hermes_status again
+else:
+  report timeout with the last status</pre>
     </div>
 
-    <p>Save the returned task id and submit time. One task id owns one poll chain unless you intentionally dispatched parallel work.</p>
+    <h2 id="statuses">Status semantics</h2>
+    <p><code class="ic">hermes_status</code> answers where the task sits in the bridge queue. <code class="ic">pending</code> and <code class="ic">running</code> are non-terminal, so the client keeps waiting by contract. <code class="ic">completed</code> and <code class="ic">failed</code> are terminal, so the client calls <code class="ic">hermes_result</code> once and moves to evidence handling.</p>
+    <p>A high share of <code class="ic">running</code> polls is normal. The failure mode is polling too rarely, seeing only a couple of non-terminal states, and then meeting the 600-second timeout after the task already lost its chance to report cleanly.</p>
 
-    <h2 id="poll">Poll by contract</h2>
-    <p>Polling is deterministic. Sleep 30 seconds after submit, then call <code class="ic">hermes_status</code>. If the task is still pending or running, poll every 120 seconds until a terminal state or the 600-second hard cap. Do not poll faster than the contract, and do not keep polling past the cap.</p>
-
-    <table style="border-collapse:collapse;max-width:68ch;margin:0 0 22px;width:100%;font-family:var(--font-grotesk);font-size:14px;color:var(--ink-2)">
-      <thead><tr><th style="border:1.5px solid var(--ink-max);padding:10px 12px;text-align:left;background:var(--paper-2)">Constant</th><th style="border:1.5px solid var(--ink-max);padding:10px 12px;text-align:left;background:var(--paper-2)">Value</th></tr></thead>
-      <tbody>
-        <tr><td style="border:1px solid var(--hairline-2);padding:10px 12px">Initial sleep</td><td style="border:1px solid var(--hairline-2);padding:10px 12px">30 seconds</td></tr>
-        <tr><td style="border:1px solid var(--hairline-2);padding:10px 12px">Interval</td><td style="border:1px solid var(--hairline-2);padding:10px 12px">120 seconds</td></tr>
-        <tr><td style="border:1px solid var(--hairline-2);padding:10px 12px">Hard cap</td><td style="border:1px solid var(--hairline-2);padding:10px 12px">600 seconds from submit</td></tr>
-      </tbody>
-    </table>
-
-    <h2 id="evidence">Fetch evidence</h2>
-    <p>When the task reaches a terminal state, call <code class="ic">hermes_result</code> exactly once to collect the outcome and cost block. For non-trivial work, especially file-writing or code-execution tasks, use <code class="ic">hermes_transcript</code> to fetch T2 evidence. The result paragraph is still a claim; the transcript is what lets the satellite verifier inspect the work.</p>
-    <p>A failed task is terminal without resume. It may provide result text and error text, but it has no resumable session, so treat it as T0 unless stronger evidence already exists.</p>
-
-    <h2 id="decompose">Decompose and oracle claims</h2>
-    <p>Pass the transcript and original prompt to <code class="ic">hermes_decompose</code>. The output is an <code class="ic">AtomicClaim[]</code> covering tool execution, assistant assertions, structured assistant claims, and the user requirements from your acceptance block.</p>
-    <p>Oracle each claim read-only against evidence. Tool-execution claims must match transcript tool rows. Assistant assertions need supporting evidence and cannot pass on prose alone. User requirements fail if no supporting evidence exists. If any claim is unchecked, refuse a perfect result.</p>
-
-    <h2 id="reloop">Respond or finish</h2>
-    <p>If verification finds a correctable failure and the task produced a resumable session, call <code class="ic">hermes_respond</code> with a corrective prompt and return to the polling contract. Use <code class="ic">hermes_cancel</code> only when you intentionally stop a task, <code class="ic">hermes_list</code> or <code class="ic">hermes_sessions</code> for queue and session inspection, and <code class="ic">hermes_task_cost</code> when you need a fresh cost snapshot.</p>
-
-    <h2 id="confidence">Confidence and evidence tiers</h2>
-    <p>Confidence is not a vibe. It is capped by the strongest evidence tier you actually inspected.</p>
-
-    <table style="border-collapse:collapse;max-width:68ch;margin:0 0 22px;width:100%;font-family:var(--font-grotesk);font-size:14px;color:var(--ink-2)">
-      <thead>
-        <tr><th style="border:1.5px solid var(--ink-max);padding:10px 12px;text-align:left;background:var(--paper-2)">Tier</th><th style="border:1.5px solid var(--ink-max);padding:10px 12px;text-align:left;background:var(--paper-2)">Evidence</th><th style="border:1.5px solid var(--ink-max);padding:10px 12px;text-align:left;background:var(--paper-2)">Confidence ceiling</th></tr>
-      </thead>
-      <tbody>
-        <tr><td style="border:1px solid var(--hairline-2);padding:10px 12px">T0</td><td style="border:1px solid var(--hairline-2);padding:10px 12px">Result text only</td><td style="border:1px solid var(--hairline-2);padding:10px 12px">PARTIAL</td></tr>
-        <tr><td style="border:1px solid var(--hairline-2);padding:10px 12px">T1</td><td style="border:1px solid var(--hairline-2);padding:10px 12px">Session summaries</td><td style="border:1px solid var(--hairline-2);padding:10px 12px">VERIFIED</td></tr>
-        <tr><td style="border:1px solid var(--hairline-2);padding:10px 12px">T2 / T3</td><td style="border:1px solid var(--hairline-2);padding:10px 12px">Full transcript / forced-output evidence</td><td style="border:1px solid var(--hairline-2);padding:10px 12px">PERFECT-eligible</td></tr>
-      </tbody>
-    </table>
+    <h2 id="limits">Why the limits matter</h2>
+    <p>Do not poll faster than 30 seconds. It adds bridge load, burns attention, and does not make Hermes work faster. Do not poll past 600 seconds. The task process has already crossed the hard cap, and another status check cannot create a valid completion path.</p>
 
     <div class="callout">
       <div class="ci">i</div>
       <div>
-        <div class="ct">File-writing tasks</div>
-        <p>Any task that writes files or executes code requires T2 evidence. A result-only verification pass is PARTIAL at best, even when the prose sounds complete.</p>
+        <div class="ct">Classic failure</div>
+        <p>Polling every four minutes gives only two or three checks inside the task window. That is too few polls to reliably observe completion before the cap.</p>
       </div>
     </div>
 
+    <h2 id="watcher">Zero-token watcher alternative</h2>
+    <p>When the client should keep working instead of blocking, run <code class="ic">skills/hermes-dispatch/tools/hermes_watch.py</code> against the task id. The watcher implements the same timing contract in deterministic code, makes no LLM calls, and only interrupts on state changes worth attention.</p>
+    <ul>
+      <li><code class="ic">done</code> — terminal status observed and <code class="ic">hermes_result</code> fetched.</li>
+      <li><code class="ic">stuck</code> — the task passed the 600-second cap with slack and no terminal result.</li>
+      <li><code class="ic">not-responding</code> and <code class="ic">RECOVERED</code> — sustained bridge outage, then resumed checks.</li>
+      <li>Sparse heartbeats — still alive, no action needed.</li>
+    </ul>
+    <p>The design rule is simple: presence is free code, and judgment belongs to the model only at result and decision points.</p>
+
     <div class="pager">
-      <a class="pcard" href="../install/"><span class="pdir">← Previous</span><span class="ptitle">Install &amp; connect</span></a>
-      <a class="pcard next" href="../"><span class="pdir">Next →</span><span class="ptitle">Dispatch a task</span></a>
+      <a class="pcard" href="../"><span class="pdir">← Previous</span><span class="ptitle">Dispatch a task</span></a>
+      <a class="pcard next" href="../transcript/"><span class="pdir">Next →</span><span class="ptitle">Fetch transcript</span></a>
     </div>
   </main>
 
   <!-- toc -->
   <nav class="toc">
     <div class="toc-h">On this page</div>
-    <a href="#submit" class="active">Submit a prompt</a>
-    <a href="#poll">Poll by contract</a>
-    <a href="#evidence">Fetch evidence</a>
-    <a href="#decompose">Decompose claims</a>
-    <a href="#reloop">Respond or finish</a>
-    <a href="#confidence">Confidence tiers</a>
+    <a href="#contract" class="active">The polling contract</a>
+    <a href="#statuses">Status semantics</a>
+    <a href="#limits">Why the limits matter</a>
+    <a href="#watcher">Zero-token watcher</a>
   </nav>
 </div>
 

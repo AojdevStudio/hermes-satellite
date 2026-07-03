@@ -154,9 +154,9 @@
     <div class="side-group">
       <div class="gh">Execution</div>
       <a class="side-i active" href="./">Dispatch a task</a>
-      <a class="side-i" href="https://github.com/AojdevStudio/hermes-satellite/blob/main/hermes-polling.md">Poll for status</a>
-      <a class="side-i" href="https://github.com/AojdevStudio/hermes-satellite/blob/main/hermes-mcp.md">Fetch transcript</a>
-      <a class="side-i" href="https://github.com/AojdevStudio/hermes-satellite#quick-start">Shared machine</a>
+      <a class="side-i" href="./poll/">Poll for status</a>
+      <a class="side-i" href="./transcript/">Fetch transcript</a>
+      <a class="side-i" href="./shared-machine/">Shared machine</a>
     </div>
     <div class="side-group">
       <div class="gh">Verification</div>
@@ -179,8 +179,8 @@
     <p class="lead">Send a task over authenticated MCP to a shared machine running the Hermes Agent, then poll it to a terminal state and collect transcript evidence.</p>
 
     <h2 id="overview">Overview</h2>
-    <p>A <em>dispatch</em> hands a command to the Hermes Agent on the shared machine. Any MCP-capable client — Claude Code, Codex, Ollama, Pi — can dispatch through the same authenticated bridge. Hermes owns execution; the client only holds a session handle.</p>
-    <p>Every dispatch returns a <code class="ic">session_id</code> you use to poll status, fetch the transcript, and later verify the outcome.</p>
+    <p>A <em>dispatch</em> hands a scoped prompt to the Hermes Agent on the shared machine. Any MCP-capable client — Claude Code, Codex, Ollama, Pi — can dispatch through the same authenticated bridge. Hermes owns execution; the client only holds a task handle.</p>
+    <p>Every dispatch returns a <code class="ic">task_id</code> you use to poll status. A completed task can also yield a <code class="ic">session_id</code> later through <code class="ic">hermes_result</code>, which is what transcript and correction flows use.</p>
 
     <div class="callout">
       <div class="ci">i</div>
@@ -191,52 +191,56 @@
     </div>
 
     <h2 id="dispatch">Dispatching over MCP</h2>
-    <p>Call the <code class="ic">hermes.dispatch</code> tool with a command and a target agent. The command runs inside the captured terminal so its transcript becomes verifiable evidence.</p>
+    <p>Call <code class="ic">hermes_submit</code> with a scoped prompt and a caller string. The prompt should include a <code class="ic">## Acceptance</code> block so the verifier can turn each requirement into a checkable claim.</p>
 
     <div class="code">
-      <div class="code-bar"><span class="lang">bash</span><span class="copy" onclick="copyBlock(this)">Copy</span></div>
-      <pre><span class="tok-c"># dispatch a build+test task, capture the transcript</span>
-hermes dispatch <span class="tok-f">--agent</span> claude-code \
-  <span class="tok-f">--command</span> <span class="tok-c">"build &amp;&amp; test"</span> \
-  <span class="tok-f">--capture-transcript</span></pre>
+      <div class="code-bar"><span class="lang">text</span><span class="copy" onclick="copyBlock(this)">Copy</span></div>
+      <pre><span class="tok-c"># MCP tool call: hermes_submit(prompt, caller)</span>
+prompt = <span class="tok-c">"""Build and test the project.
+
+## Acceptance
+- The build command completes successfully.
+- The test command completes successfully.
+- The final response includes the commands run and their outputs.
+"""</span>
+caller = <span class="tok-c">"satellite-docs-client"</span></pre>
     </div>
 
-    <p>The call returns immediately with a session handle. Hermes streams terminal output to the transcript while the task runs on the shared machine:</p>
+    <p>The call returns immediately with a task id. Hermes runs on the shared machine while the client keeps only the task handle:</p>
 
     <div class="term">
       <div class="term-bar"><span class="tl" style="background:var(--tl-red)"></span><span class="tl" style="background:var(--tl-yellow)"></span><span class="tl" style="background:var(--tl-green)"></span><span class="m" style="margin-left:8px;font-family:var(--font-mono);font-size:12px">shared-mac-mini</span></div>
-      <pre><span class="g">$</span> hermes dispatch --agent claude-code
-<span class="b">session: HERMES_SESSION_ID</span>
-<span class="g">status: running on shared Mac mini</span>
-<span class="b">transcript: streaming…</span></pre>
+      <pre><span class="g">mcp</span> hermes_submit(prompt, caller=<span class="b">"satellite-docs-client"</span>)
+<span class="b">task_id: task_01J...</span>
+<span class="g">status: pending</span></pre>
     </div>
 
     <h2 id="poll">Polling to a terminal state</h2>
-    <p>Poll <code class="ic">hermes.poll</code> with the session id until it reports a terminal status: <code class="ic">complete</code>, <code class="ic">failed</code>, or <code class="ic">rejected</code>. Polling is cheap and idempotent — back off between calls.</p>
+    <p>Poll <code class="ic">hermes_status</code> with the task id until it reports a terminal status: <code class="ic">completed</code> or <code class="ic">failed</code>. Polling is cheap and idempotent, but it follows the contract: 30 seconds before the first check, 120 seconds between running checks, and a 600-second hard cap.</p>
 
     <div class="code">
       <div class="code-bar"><span class="lang">json</span><span class="copy" onclick="copyBlock(this)">Copy</span></div>
-      <pre>{
-  <span class="tok-f">"session"</span>: <span class="tok-c">"HERMES_SESSION_ID"</span>,
-  <span class="tok-f">"status"</span>: <span class="tok-c">"complete"</span>,
-  <span class="tok-f">"exit"</span>: 0,
-  <span class="tok-f">"transcript"</span>: <span class="tok-c">"ready"</span>
+      <pre><span class="g">mcp</span> hermes_status(task_id=<span class="b">"task_01J..."</span>)
+{
+  <span class="tok-f">"task_id"</span>: <span class="tok-c">"task_01J..."</span>,
+  <span class="tok-f">"status"</span>: <span class="tok-c">"completed"</span>
 }</pre>
     </div>
 
     <h3>Terminal statuses</h3>
     <ul>
+      <li><code class="ic">pending</code> — the task is queued on the shared machine.</li>
       <li><code class="ic">running</code> — the task is executing on the shared machine.</li>
-      <li><code class="ic">complete</code> — the command exited; transcript is captured and ready to fetch.</li>
-      <li><code class="ic">rejected</code> — policy or verification refused the run.</li>
+      <li><code class="ic">completed</code> — the task reached a successful terminal state; call <code class="ic">hermes_result</code> once.</li>
+      <li><code class="ic">failed</code> — the task reached a terminal failure; call <code class="ic">hermes_result</code> once and parse both result and error.</li>
     </ul>
 
     <h2 id="next">Next steps</h2>
-    <p>With a captured transcript you can decompose the claimed outcome into checkable claims and verify each against the evidence. Continue to <strong>Fetch transcript</strong>.</p>
+    <p>After <code class="ic">hermes_status</code> reaches a terminal state, call <code class="ic">hermes_result</code> once, then fetch transcript evidence when a completed task returns a session id. Continue to <strong>Poll for status</strong>.</p>
 
     <div class="pager">
-      <a class="pcard" href="https://github.com/AojdevStudio/hermes-satellite#the-verification-loop"><span class="pdir">← Previous</span><span class="ptitle">Your first dispatch</span></a>
-      <a class="pcard next" href="https://github.com/AojdevStudio/hermes-satellite/blob/main/hermes-polling.md"><span class="pdir">Next →</span><span class="ptitle">Poll for status</span></a>
+      <a class="pcard" href="./first-dispatch/"><span class="pdir">← Previous</span><span class="ptitle">Your first dispatch</span></a>
+      <a class="pcard next" href="./poll/"><span class="pdir">Next →</span><span class="ptitle">Poll for status</span></a>
     </div>
   </main>
 

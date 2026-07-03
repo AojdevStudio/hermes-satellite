@@ -11,4 +11,7 @@ window.DOCS_INDEX = [
   { title: 'Introduction', section: 'Getting started', href: './introduction/' },
   { title: 'Install & connect', section: 'Getting started', href: './install/' },
   { title: 'Your first dispatch', section: 'Getting started', href: './first-dispatch/' },
+  { title: 'Poll for status', section: 'Execution', href: './poll/' },
+  { title: 'Fetch transcript', section: 'Execution', href: './transcript/' },
+  { title: 'Shared machine', section: 'Execution', href: './shared-machine/' },
 ];

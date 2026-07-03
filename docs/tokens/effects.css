@@ -1,0 +1,47 @@
+/* Hermes Satellite — effects: shadows, motion, blueprint grid. */
+:root {
+  /* Shadows are soft and navy-tinted, never gray. Cards sit almost flat. */
+  --shadow-sm:   0 1px 2px rgba(22, 33, 63, .05);
+  --shadow-card: 0 1px 0 rgba(22, 33, 63, .04), 0 10px 28px -20px rgba(22, 33, 63, .22);
+  --shadow-pop:  0 14px 44px -14px rgba(22, 33, 63, .28);
+  --shadow-term: 0 20px 52px -22px rgba(8, 12, 24, .55);
+
+  /* Brutalist edges — stark, hard, no soft UI. Prefer these on CTAs & framed blocks. */
+  --border-hair:  1px solid var(--hairline);
+  --border-ink:   1.5px solid var(--ink-max);
+  --border-heavy: 2px solid var(--ink-max);
+  --radius-box:   0px;      /* boxed / hard-edged CTA corners */
+
+  --ease: cubic-bezier(.2, .6, .2, 1);
+  --dur:  160ms;
+  --dur-slow: 260ms;
+
+  /* ---- Engineering-notebook / graph-paper background system ----
+     Off-white paper base, faint blue minor grid, a slightly stronger major
+     line every 5 cells. Apply as `background: var(--grid-bg)` (minor only)
+     or `var(--graph-bg)` (minor + major) on any section.
+     Origin is aligned so the red margin rule (see --margin-rule) lands on a line. */
+  --grid-size: 24px;            /* minor cell */
+  --grid-major: 120px;          /* major cell = 5 minor cells */
+  --grid-line-major: #dbe2f0;   /* stronger notebook line */
+
+  --grid-bg:
+    linear-gradient(var(--grid-line) 1px, transparent 1px) 0 0 / var(--grid-size) var(--grid-size),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px) 0 0 / var(--grid-size) var(--grid-size),
+    var(--paper);
+
+  --graph-bg:
+    linear-gradient(var(--grid-line-major) 1px, transparent 1px) 0 0 / var(--grid-major) var(--grid-major),
+    linear-gradient(90deg, var(--grid-line-major) 1px, transparent 1px) 0 0 / var(--grid-major) var(--grid-major),
+    linear-gradient(var(--grid-line) 1px, transparent 1px) 0 0 / var(--grid-size) var(--grid-size),
+    linear-gradient(90deg, var(--grid-line) 1px, transparent 1px) 0 0 / var(--grid-size) var(--grid-size),
+    var(--paper);
+
+  /* Light-red vertical margin rule (notebook left margin). Compose over any bg:
+     background: var(--margin-rule), var(--graph-bg); with matching padding-left. */
+  --margin-x: 48px;             /* rule sits 48px from the left edge */
+  --margin-rule:
+    linear-gradient(90deg, transparent var(--margin-x), var(--margin-rule-color) var(--margin-x),
+      var(--margin-rule-color) calc(var(--margin-x) + 1.5px), transparent calc(var(--margin-x) + 1.5px));
+  --margin-rule-color: #e7a6ac; /* light editorial red */
+}

@@ -1,0 +1,52 @@
+/* Hermes Satellite — typography tokens.
+   Design language: LUXURY MANGA EDITORIAL × BRUTALIST AI LANDING.
+   - Display: a dramatic high-contrast Didone (Bodoni Moda) at magazine scale — huge
+     serif, lots of whitespace, extreme scale contrast, one italic emphasis word.
+   - Body/lead: a quieter editorial serif (Newsreader) that stays readable small.
+   - Grotesque: heavy Helvetica-stack for brutalist UPPERCASE poster titles + nav + boxed CTAs.
+   - Mono: IBM Plex Mono for eyebrows, key:value evidence, code, section numbers.
+   NOTE: Bodoni Moda / Newsreader / IBM Plex Mono are Google-Fonts stand-ins for the
+   original licensed type. Swap when originals arrive. */
+:root {
+  --font-display: 'Bodoni Moda', 'Didot', 'Playfair Display', Georgia, serif;   /* Didone hero type */
+  --font-serif:   'Newsreader', Georgia, 'Times New Roman', serif;               /* body / lead */
+  --font-grotesk: 'Helvetica Neue', Helvetica, Arial, sans-serif;                /* brutalist titles / nav / CTA */
+  --font-mono:    'IBM Plex Mono', ui-monospace, 'SFMono-Regular', Menlo, monospace;
+  --font-sans:    var(--font-grotesk); /* alias */
+
+  /* Didone display — dramatic scale contrast (magazine cover) */
+  --fs-mega:    112px;   /* poster / cover */
+  --fs-display: 80px;
+  --fs-h1:      54px;
+  --fs-h2:      36px;
+  --fs-h3:      24px;
+  --fs-lead:    20px;
+  --fs-body:    17px;
+  --fs-small:   15px;
+
+  /* Grotesk brutalist title scale (heavy, tight, uppercase) */
+  --fs-poster:  40px;
+
+  /* Mono label scale */
+  --fs-eyebrow: 12px;
+  --fs-label:   13px;
+  --fs-code:    14px;
+  --fs-micro:   11px;
+
+  --track-eyebrow: 0.16em;
+  --track-label:   0.06em;
+  --track-caps:    0.02em;
+  --track-poster:  -0.01em;   /* tight brutalist grotesk */
+  --track-display: -0.015em;  /* tight Didone display */
+
+  --lh-display: 0.98;   /* tight, dramatic */
+  --lh-head:    1.08;
+  --lh-body:    1.55;
+  --lh-mono:    1.5;
+
+  --w-reg:   400;
+  --w-med:   500;
+  --w-semi:  600;
+  --w-bold:  700;
+  --w-black: 900;
+}

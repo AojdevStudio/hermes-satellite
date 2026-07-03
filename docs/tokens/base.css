@@ -1,0 +1,40 @@
+/* Hermes Satellite — light base resets. Kept minimal; components style themselves. */
+:root { color-scheme: light; }
+
+*, *::before, *::after { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--paper);
+  color: var(--ink-2);
+  font-family: var(--font-serif);
+  font-size: var(--fs-body);
+  line-height: var(--lh-body);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+::selection { background: var(--blue-wash); color: var(--ink); }
+
+a { color: var(--blue); text-decoration: none; }
+a:hover { color: var(--blue-2); }
+
+/* Utility: eyebrow / mono label */
+.hs-eyebrow {
+  font-family: var(--font-mono);
+  font-size: var(--fs-eyebrow);
+  letter-spacing: var(--track-eyebrow);
+  text-transform: uppercase;
+  color: var(--ink-mute);
+}
+
+/* ---- Engineering-notebook / graph-paper surfaces ----
+   .hs-paper  — off-white base + faint blue minor grid
+   .hs-graph  — adds the stronger major line every 5 cells (true graph paper)
+   .hs-ruled  — adds the light-red vertical margin rule; pair with .hs-margin-pad
+                (or your own padding-left >= --margin-x) so content clears the rule. */
+.hs-paper { background: var(--grid-bg); }
+.hs-graph { background: var(--graph-bg); }
+.hs-ruled { background: var(--margin-rule), var(--graph-bg); }
+.hs-paper.hs-ruled { background: var(--margin-rule), var(--grid-bg); }
+.hs-margin-pad { padding-left: calc(var(--margin-x) + var(--sp-5)); }

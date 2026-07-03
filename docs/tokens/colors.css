@@ -1,0 +1,62 @@
+/* Hermes Satellite — color tokens.
+   Hermes reads calm and monochrome (navy ink on near-white paper).
+   The ONLY saturated color in product UI is the coding-agent icons.
+   Blue and editorial red are used sparingly, like ink on a blueprint. */
+:root {
+  /* ---- Paper & ink (the monochrome core) ---- */
+  --paper:      #fafafa;   /* page background */
+  --paper-2:    #f3f4f2;   /* alt band / sunken surface */
+  --grid-line:  #e5e9f2;   /* faint blueprint grid */
+  --card:       #ffffff;   /* card / raised surface */
+  --hairline:   #e6e7e2;   /* thin rules & borders */
+  --hairline-2: #d6d8d2;   /* stronger divider */
+
+  --ink-max:    #0d0e12;   /* true black — brutalist borders, poster type, hero ink */
+  --ink:        #16213f;   /* display / headline navy */
+  --ink-2:      #33384a;   /* body text */
+  --ink-3:      #5c6172;   /* secondary text */
+  --ink-mute:   #9a9ea8;   /* mono labels, captions */
+
+  /* ---- Accents (sparing) ---- */
+  --blue:       #1b3fa0;   /* primary accent, links, emphasis */
+  --blue-2:     #2f4bd6;   /* brighter link / hover */
+  --blue-wash:  #eef1fb;   /* tint fill */
+  --red:        #d6435b;   /* editorial red: section numbers, margin rule */
+  --red-wash:   #fbeef0;
+
+  /* ---- Terminal (dark code panes) ---- */
+  --term-bg:    #0e1320;
+  --term-bar:   #1b2234;
+  --term-fg:    #e7eaf2;
+  --term-green: #3ecf6d;
+  --term-blue:  #6aa0ff;
+  --term-mute:  #6b7488;
+  --tl-red:     #ff5f57;
+  --tl-yellow:  #febc2e;
+  --tl-green:   #28c840;
+
+  /* ---- Semantic status (on light) ---- */
+  --ok:        #1f8a4c;    /* verified / complete / running */
+  --warn:      #bd7c17;    /* needs evidence / pending */
+  --bad:       #c0392b;    /* rejected / error */
+  --ok-wash:   #e9f5ee;
+  --warn-wash: #fbf1de;
+  --bad-wash:  #fbecea;
+
+  /* ---- Agent icon colors (the colored exception) ---- */
+  --agent-anthropic: #141413;
+  --agent-claude:    #d97757;
+  --agent-codex:     #6b7ff0;
+  --agent-ollama:    #141413;
+  --agent-pi:        #141413;
+
+  /* ---- Semantic aliases ---- */
+  --bg:          var(--paper);
+  --surface:     var(--card);
+  --text:        var(--ink-2);
+  --text-strong: var(--ink);
+  --text-mute:   var(--ink-mute);
+  --border:      var(--hairline);
+  --link:        var(--blue);
+  --accent:      var(--blue);
+}

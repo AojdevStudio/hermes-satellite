@@ -3,10 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Hermes Docs — Dispatch &amp; Verify</title>
-<meta name="description" content="Hermes Satellite documentation — dispatch tasks over authenticated MCP, poll to terminal state, fetch transcript evidence, and verify outcomes.">
-<link rel="icon" type="image/png" href="../assets/aoj-logo.png">
-<link rel="stylesheet" href="../styles.css">
+<title>Introduction — Hermes Docs</title>
+<meta name="description" content="What Hermes Satellite is, why self-reported completion is not proof, and how the executor/verifier split changes the loop.">
+<link rel="icon" type="image/png" href="../../assets/aoj-logo.png">
+<link rel="stylesheet" href="../../styles.css">
 <style>
   html { scroll-behavior: smooth; }
   body { background: #ffffff; color: var(--ink-2); font-family: var(--font-grotesk); --blue: #EC4B34; --blue-2: #d63a26; --blue-wash: #fdece8; }
@@ -125,7 +125,7 @@
 
 <header class="nav">
   <a class="brand" href="../">
-    <img src="../assets/aoj-logo.png" alt="AOJ Dev Studio">
+    <img src="../../assets/aoj-logo.png" alt="AOJ Dev Studio">
     <span class="tag">Docs</span>
   </a>
   <div class="search" onclick="openPalette()">
@@ -147,13 +147,13 @@
     <a class="wm" href="../" style="display:block;font-family:var(--font-display);font-size:21px;font-weight:500;letter-spacing:-.01em;color:var(--ink-max);margin:0 0 22px 10px">Hermes Satellite</a>
     <div class="side-group">
       <div class="gh">Getting started</div>
-      <a class="side-i" href="./introduction/">Introduction</a>
-      <a class="side-i" href="./install/">Install &amp; connect</a>
-      <a class="side-i" href="./first-dispatch/">Your first dispatch</a>
+      <a class="side-i active" href="./">Introduction</a>
+      <a class="side-i" href="../install/">Install &amp; connect</a>
+      <a class="side-i" href="../first-dispatch/">Your first dispatch</a>
     </div>
     <div class="side-group">
       <div class="gh">Execution</div>
-      <a class="side-i active" href="./">Dispatch a task</a>
+      <a class="side-i" href="../">Dispatch a task</a>
       <a class="side-i" href="https://github.com/AojdevStudio/hermes-satellite/blob/main/hermes-polling.md">Poll for status</a>
       <a class="side-i" href="https://github.com/AojdevStudio/hermes-satellite/blob/main/hermes-mcp.md">Fetch transcript</a>
       <a class="side-i" href="https://github.com/AojdevStudio/hermes-satellite#quick-start">Shared machine</a>
@@ -174,80 +174,64 @@
 
   <!-- content -->
   <main class="doc">
-    <div class="crumbs"><span>Execution</span><span class="sep">/</span><span>Dispatch a task</span></div>
-    <h1>Dispatch a task</h1>
-    <p class="lead">Send a task over authenticated MCP to a shared machine running the Hermes Agent, then poll it to a terminal state and collect transcript evidence.</p>
+    <div class="crumbs"><span>Getting started</span><span class="sep">/</span><span>Introduction</span></div>
+    <h1>Introduction</h1>
+    <p class="lead">Hermes Satellite gives you a remote executor and an independent verifier, separated by a network boundary so Hermes can prove work instead of merely claiming it is done.</p>
 
-    <h2 id="overview">Overview</h2>
-    <p>A <em>dispatch</em> hands a command to the Hermes Agent on the shared machine. Any MCP-capable client — Claude Code, Codex, Ollama, Pi — can dispatch through the same authenticated bridge. Hermes owns execution; the client only holds a session handle.</p>
-    <p>Every dispatch returns a <code class="ic">session_id</code> you use to poll status, fetch the transcript, and later verify the outcome.</p>
+    <h2 id="problem">The problem</h2>
+    <p>You hand a long-running task to an agent, leave it to work, and come back to a confident paragraph that says the task is done. That paragraph is useful context, but it is not proof. An agent's summary of its own work is a claim, and a loop that trusts that claim can ship code the operator never actually observed.</p>
+    <p>The common alternatives collapse the value of delegation. If you watch the terminal, you are babysitting. If you trust blindly, you merge vibes. If the reviewer shares the executor's context, machine, and blind spots, you have only asked a second optimist to grade the first one's homework.</p>
+
+    <h2 id="insight">The insight</h2>
+    <p>The thing that checks the work must not be the thing that did the work. Hermes Satellite makes that separation concrete by placing a network between the executor and the verifier.</p>
+    <p>A dedicated Hermes host executes the task. A satellite client submits the prompt, polls for state, fetches transcript evidence, decomposes the outcome into atomic claims, and verifies each claim against evidence it can inspect independently. The executor and verifier can run on different machines, with different context, and even different model families.</p>
 
     <div class="callout">
       <div class="ci">i</div>
       <div>
-        <div class="ct">Note</div>
-        <p>Dispatches run on a shared machine. Tasks are queued and mediated by policy — treat the environment as multi-tenant and never assume exclusive access.</p>
+        <div class="ct">Trust boundary</div>
+        <p>The network split is not incidental plumbing. It is the line that keeps execution and verification from collapsing back into the same optimistic loop.</p>
       </div>
     </div>
 
-    <h2 id="dispatch">Dispatching over MCP</h2>
-    <p>Call the <code class="ic">hermes.dispatch</code> tool with a command and a target agent. The command runs inside the captured terminal so its transcript becomes verifiable evidence.</p>
+    <h2 id="what-it-does">What it does</h2>
+    <p>Hermes Satellite exposes a dedicated host — a Mac mini, Linux box, VM, homelab server, or CI runner — through an authenticated MCP bridge. Any MCP-capable client can submit work to Hermes on that host and receive a task handle instead of owning the execution session locally.</p>
+    <p>The core loop is dispatch, poll, fetch, decompose, verify. You dispatch with <code class="ic">hermes_submit</code>, poll with <code class="ic">hermes_status</code>, fetch result and transcript evidence with <code class="ic">hermes_result</code> and <code class="ic">hermes_transcript</code>, decompose the evidence with <code class="ic">hermes_decompose</code>, then use <code class="ic">hermes_respond</code> only when correction is needed.</p>
 
-    <div class="code">
-      <div class="code-bar"><span class="lang">bash</span><span class="copy" onclick="copyBlock(this)">Copy</span></div>
-      <pre><span class="tok-c"># dispatch a build+test task, capture the transcript</span>
-hermes dispatch <span class="tok-f">--agent</span> claude-code \
-  <span class="tok-f">--command</span> <span class="tok-c">"build &amp;&amp; test"</span> \
-  <span class="tok-f">--capture-transcript</span></pre>
-    </div>
+    <h2 id="why-different">Why it's different</h2>
+    <p>Most loop tooling stays on one box: one harness, one process boundary, one session grading its own work. Hermes Satellite treats distribution as the scale axis and verification as the trust axis. MCP lets both move without merging them back into one local harness.</p>
 
-    <p>The call returns immediately with a session handle. Hermes streams terminal output to the transcript while the task runs on the shared machine:</p>
-
-    <div class="term">
-      <div class="term-bar"><span class="tl" style="background:var(--tl-red)"></span><span class="tl" style="background:var(--tl-yellow)"></span><span class="tl" style="background:var(--tl-green)"></span><span class="m" style="margin-left:8px;font-family:var(--font-mono);font-size:12px">shared-mac-mini</span></div>
-      <pre><span class="g">$</span> hermes dispatch --agent claude-code
-<span class="b">session: HERMES_SESSION_ID</span>
-<span class="g">status: running on shared Mac mini</span>
-<span class="b">transcript: streaming…</span></pre>
-    </div>
-
-    <h2 id="poll">Polling to a terminal state</h2>
-    <p>Poll <code class="ic">hermes.poll</code> with the session id until it reports a terminal status: <code class="ic">complete</code>, <code class="ic">failed</code>, or <code class="ic">rejected</code>. Polling is cheap and idempotent — back off between calls.</p>
-
-    <div class="code">
-      <div class="code-bar"><span class="lang">json</span><span class="copy" onclick="copyBlock(this)">Copy</span></div>
-      <pre>{
-  <span class="tok-f">"session"</span>: <span class="tok-c">"HERMES_SESSION_ID"</span>,
-  <span class="tok-f">"status"</span>: <span class="tok-c">"complete"</span>,
-  <span class="tok-f">"exit"</span>: 0,
-  <span class="tok-f">"transcript"</span>: <span class="tok-c">"ready"</span>
-}</pre>
-    </div>
-
-    <h3>Terminal statuses</h3>
-    <ul>
-      <li><code class="ic">running</code> — the task is executing on the shared machine.</li>
-      <li><code class="ic">complete</code> — the command exited; transcript is captured and ready to fetch.</li>
-      <li><code class="ic">rejected</code> — policy or verification refused the run.</li>
-    </ul>
-
-    <h2 id="next">Next steps</h2>
-    <p>With a captured transcript you can decompose the claimed outcome into checkable claims and verify each against the evidence. Continue to <strong>Fetch transcript</strong>.</p>
+    <table style="border-collapse:collapse;max-width:68ch;margin:0 0 22px;width:100%;font-family:var(--font-grotesk);font-size:14px;color:var(--ink-2)">
+      <thead>
+        <tr>
+          <th style="border:1.5px solid var(--ink-max);padding:10px 12px;text-align:left;background:var(--paper-2)">Dimension</th>
+          <th style="border:1.5px solid var(--ink-max);padding:10px 12px;text-align:left;background:var(--paper-2)">A plain agent loop</th>
+          <th style="border:1.5px solid var(--ink-max);padding:10px 12px;text-align:left;background:var(--paper-2)">Hermes Satellite</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><th style="border:1px solid var(--hairline-2);padding:10px 12px;text-align:left">Completion</th><td style="border:1px solid var(--hairline-2);padding:10px 12px">Prose: "done, looks good"</td><td style="border:1px solid var(--hairline-2);padding:10px 12px">Atomic claims, each oracled against evidence</td></tr>
+        <tr><th style="border:1px solid var(--hairline-2);padding:10px 12px;text-align:left">Reviewer</th><td style="border:1px solid var(--hairline-2);padding:10px 12px">Same session, same blind spots</td><td style="border:1px solid var(--hairline-2);padding:10px 12px">Independent client, optionally a different model family</td></tr>
+        <tr><th style="border:1px solid var(--hairline-2);padding:10px 12px;text-align:left">Trust boundary</th><td style="border:1px solid var(--hairline-2);padding:10px 12px">Process boundary, or none</td><td style="border:1px solid var(--hairline-2);padding:10px 12px">Network boundary you place a verifier across</td></tr>
+        <tr><th style="border:1px solid var(--hairline-2);padding:10px 12px;text-align:left">Confidence</th><td style="border:1px solid var(--hairline-2);padding:10px 12px">Vibes</td><td style="border:1px solid var(--hairline-2);padding:10px 12px">Clamped by evidence tier, from T0 through T3</td></tr>
+        <tr><th style="border:1px solid var(--hairline-2);padding:10px 12px;text-align:left">Cost</th><td style="border:1px solid var(--hairline-2);padding:10px 12px">Invisible, often unreconciled as zero</td><td style="border:1px solid var(--hairline-2);padding:10px 12px"><code class="ic">TaskCostSnapshot</code> surfaced; unreconciled MoA cost remains unknown</td></tr>
+        <tr><th style="border:1px solid var(--hairline-2);padding:10px 12px;text-align:left">Presence while away</th><td style="border:1px solid var(--hairline-2);padding:10px 12px">Babysit the terminal, or fly blind</td><td style="border:1px solid var(--hairline-2);padding:10px 12px">Zero-token watcher taps you only on state change</td></tr>
+      </tbody>
+    </table>
 
     <div class="pager">
-      <a class="pcard" href="https://github.com/AojdevStudio/hermes-satellite#the-verification-loop"><span class="pdir">← Previous</span><span class="ptitle">Your first dispatch</span></a>
-      <a class="pcard next" href="https://github.com/AojdevStudio/hermes-satellite/blob/main/hermes-polling.md"><span class="pdir">Next →</span><span class="ptitle">Poll for status</span></a>
+      <span></span>
+      <a class="pcard next" href="../install/"><span class="pdir">Next →</span><span class="ptitle">Install &amp; connect</span></a>
     </div>
   </main>
 
   <!-- toc -->
   <nav class="toc">
     <div class="toc-h">On this page</div>
-    <a href="#overview" class="active">Overview</a>
-    <a href="#dispatch">Dispatching over MCP</a>
-    <a href="#poll">Polling to a terminal state</a>
-    <a href="#poll" class="sub">Terminal statuses</a>
-    <a href="#next">Next steps</a>
+    <a href="#problem" class="active">The problem</a>
+    <a href="#insight">The insight</a>
+    <a href="#what-it-does">What it does</a>
+    <a href="#why-different">Why it's different</a>
   </nav>
 </div>
 
@@ -259,8 +243,8 @@ hermes dispatch <span class="tok-f">--agent</span> claude-code \
   </div>
 </div>
 
-<script>window.DOCS_BASE = './';</script>
-<script src="./search-index.js"></script>
+<script>window.DOCS_BASE = '../';</script>
+<script src="../search-index.js"></script>
 <script>
   // scrollspy for TOC
   const tocLinks = [...document.querySelectorAll('nav.toc a')];

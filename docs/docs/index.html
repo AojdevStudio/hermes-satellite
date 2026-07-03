@@ -259,6 +259,8 @@ hermes dispatch <span class="tok-f">--agent</span> claude-code \
   </div>
 </div>
 
+<script>window.DOCS_BASE = './';</script>
+<script src="./search-index.js"></script>
 <script>
   // scrollspy for TOC
   const tocLinks = [...document.querySelectorAll('nav.toc a')];
@@ -279,21 +281,15 @@ hermes dispatch <span class="tok-f">--agent</span> claude-code \
     if (p) p.then(() => { btn.textContent = 'Copied'; setTimeout(() => btn.textContent = 'Copy', 1200); }).catch(() => {});
   }
 
-  // command palette
-  const PAL = [
-    ['Dispatch a task', 'Execution', '↵'],
-    ['Poll for status', 'Execution', '↵'],
-    ['Fetch transcript', 'Execution', '↵'],
-    ['Decompose claims', 'Verification', '↵'],
-    ['Evidence & outcomes', 'Verification', '↵'],
-    ['Authenticated bridge', 'MCP', '↵'],
-    ['hermes.dispatch', 'Tool reference', '↵'],
-    ['hermes.verify', 'Tool reference', '↵'],
-  ];
+  // command palette — entries from shared search-index.js; click/Enter navigates
+  const PAL = (window.DOCS_INDEX || []);
+  const palHref = (h) => h.startsWith('../') ? (window.DOCS_BASE === '../' ? '../' + h : h) : (window.DOCS_BASE === '../' ? '../' + h.replace(/^\.\//, '') : h);
+  let palMatches = [];
   function renderPal(q = '') {
     const list = document.getElementById('palList');
-    const items = PAL.filter(p => p[0].toLowerCase().includes(q.toLowerCase()) || p[1].toLowerCase().includes(q.toLowerCase()));
-    list.innerHTML = items.map((p, i) => `<div class="pal-i ${i===0?'on':''}"><span class="pl-k">${p[1][0]}</span><span class="pl-t">${p[0]}</span><span class="pl-s">${p[1]}</span></div>`).join('') || '<div class="pal-i"><span class="pl-t" style="color:var(--ink-mute)">No matches</span></div>';
+    palMatches = PAL.filter(p => p.title.toLowerCase().includes(q.toLowerCase()) || p.section.toLowerCase().includes(q.toLowerCase()));
+    list.innerHTML = palMatches.map((p, i) => `<div class="pal-i ${i===0?'on':''}" data-href="${palHref(p.href)}"><span class="pl-k">${p.section[0]}</span><span class="pl-t">${p.title}</span><span class="pl-s">${p.section}</span></div>`).join('') || '<div class="pal-i"><span class="pl-t" style="color:var(--ink-mute)">No matches</span></div>';
+    [...list.querySelectorAll('.pal-i[data-href]')].forEach(el => el.addEventListener('click', () => { location.href = el.dataset.href; }));
   }
   function openPalette() { document.getElementById('scrim').classList.add('open'); const i = document.getElementById('palInput'); i.value = ''; renderPal(); setTimeout(() => i.focus(), 30); }
   function closePalette() { document.getElementById('scrim').classList.remove('open'); }
@@ -301,6 +297,7 @@ hermes dispatch <span class="tok-f">--agent</span> claude-code \
   document.addEventListener('keydown', e => {
     if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); openPalette(); }
     if (e.key === 'Escape') closePalette();
+    if (e.key === 'Enter' && document.getElementById('scrim').classList.contains('open') && palMatches.length) { location.href = palHref(palMatches[0].href); }
   });
   spy();
 </script>

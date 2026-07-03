@@ -1,6 +1,6 @@
 # Hermes MCP bridge — architecture and gaps
 
-The canonical Phase 4 bridge source now lives in this repo at `apps/hermes-async-bridge/`. The Mac mini launchd service has been cut over from `supergateway` to the native Python Streamable HTTP bridge bound to Tailscale `100.66.249.14:8081`. Treat the repo copy as source of truth for the native HTTP/auth implementation.
+The canonical Phase 4 bridge source now lives in this repo at `apps/hermes-async-bridge/`. The Mac mini launchd service has been cut over from `supergateway` to the native Python Streamable HTTP bridge bound to Tailscale `100.x.x.x:8081`. Treat the repo copy as source of truth for the native HTTP/auth implementation.
 
 ---
 
@@ -12,7 +12,7 @@ Canonical repo bridge script:
 apps/hermes-async-bridge/hermes_async_bridge.py
 ```
 
-Legacy/deployed script path: `~/.hermes/scripts/hermes_async_bridge.py`.
+Legacy/deployed script path: `<runtime-script-link>`.
 
 It is currently launched via wrapper script:
 
@@ -20,7 +20,7 @@ It is currently launched via wrapper script:
 ~/.hermes/scripts/run_hermes_async_bridge.sh
 ```
 
-The HTTP bridge is exposed directly by native Python FastMCP on **Tailscale port 8081** (`http://100.66.249.14:8081/mcp`). Bearer auth is configured in the Python SDK and has been proven from another tailnet node: no token returns HTTP 401, bearer token returns HTTP 200 with a clean MCP initialize. No `supergateway` layer should be in front.
+The HTTP bridge is exposed directly by native Python FastMCP on **Tailscale port 8081** (`http://100.x.x.x:8081/mcp`). Bearer auth is configured in the Python SDK and has been proven from another tailnet node: no token returns HTTP 401, bearer token returns HTTP 200 with a clean MCP initialize. No `supergateway` layer should be in front.
 
 Standalone doc (on the Mac mini): `~/.hermes/docs/hermes-async-bridge.md`
 
@@ -35,18 +35,18 @@ Main-machine install handoff: [`specs/hermes-mcp-main-machine-install.md`](./spe
 | Role | Path |
 |------|------|
 | Canonical repo script | `apps/hermes-async-bridge/hermes_async_bridge.py` |
-| Active MCP server script (legacy/deploy symlink target) | `~/.hermes/scripts/hermes_async_bridge.py` |
-| launchd wrapper | `~/.hermes/scripts/run_hermes_async_bridge.sh` |
+| Active MCP server script (legacy/deploy symlink target) | `<runtime-script-link>` |
+| launchd wrapper | `<service-wrapper>` |
 | Python interpreter (runtime) | `~/.hermes/hermes-agent/venv/bin/python3` |
 | SQLite task DB | `~/.hermes/async_bridge.db` |
 | launchd service | `~/Library/LaunchAgents/com.example.hermes-async-bridge.plist` |
-| Service logs | `~/Library/Logs/hermes-async-bridge.log` |
+| Service logs | `<supervisor-log-destination>` |
 | Service error log | `~/Library/Logs/hermes-async-bridge.err.log` |
 | Documentation | `~/.hermes/docs/hermes-async-bridge.md` |
 | Hermes skill docs | `~/.hermes/skills/autonomous-ai-agents/hermes-mcp-bridge/SKILL.md` |
 | Skill architecture ref | `~/.hermes/skills/autonomous-ai-agents/hermes-mcp-bridge/references/async-bridge-architecture.md` |
 | Skill’s copy of the script | `~/.hermes/skills/autonomous-ai-agents/hermes-mcp-bridge/scripts/hermes_async_bridge.py` |
-| Runtime token cache | `~/.hermes/secrets/hermes_async_bridge_token` (`0600`, mirrored to your secrets manager as `HERMES_ASYNC_BRIDGE_TOKEN`) |
+| Runtime token cache | `<local-secret-file>` (`0600`, mirrored to your secrets manager as `HERMES_ASYNC_BRIDGE_TOKEN`) |
 
 **Note:** The active runtime path is the wrapper + symlink to the repo script. The skill-copy script may lag; update the skill docs/scripts after deployment verification.
 
@@ -81,14 +81,14 @@ The client doesn’t matter as long as it speaks **remote MCP** (Streamable HTTP
 | Requirement | Example |
 |-------------|---------|
 | Remote MCP support | URL-based server config |
-| Network path to Mac mini | Tailscale `100.66.249.14` is the deployed bind; clients must be on the tailnet; LAN `10.x.x.x` is not exposed |
+| Network path to Mac mini | Tailscale `100.x.x.x` is the deployed bind; clients must be on the tailnet; LAN `10.x.x.x` is not exposed |
 | Shared secret | `Authorization: Bearer <token>` (or mTLS) |
 
 Conceptual config (exact shape varies by client):
 
 ```json
 {
-  "url": "http://100.66.249.14:8081/mcp",
+  "url": "http://100.x.x.x:8081/mcp",
   "headers": {
     "Authorization": "Bearer <token>"
   }
@@ -134,8 +134,8 @@ That’s the right replacement for supergateway + stdio: **one protocol, one ser
 | Python MCP SDK | `mcp.server.fastmcp.FastMCP` |
 | Transport | Native Streamable HTTP (`mcp.run(transport="streamable-http")`) |
 | HTTP bridge | None — `supergateway` removed from launchd path |
-| Active endpoint | `http://100.66.249.14:8081/mcp` |
-| Health endpoint | `http://100.66.249.14:8081/healthz` |
+| Active endpoint | `http://100.x.x.x:8081/mcp` |
+| Health endpoint | `http://100.x.x.x:8081/healthz` |
 | Auth | SDK bearer auth configured via `token_verifier` + `AuthSettings`; verified no-token 401 and bearer-token initialize 200 from a separate tailnet client |
 
 **launchd command (today):**
@@ -146,7 +146,7 @@ That’s the right replacement for supergateway + stdio: **one protocol, one ser
 
 **Verified:** transport cutover is complete and auth is proven from a separate tailnet client: unauthenticated `/mcp` returned 401; authenticated initialize returned 200. The listener is bound to the Tailscale IP only, so the old unauthenticated LAN exposure is gone.
 
-**Smoke-test quirk:** the Mac mini cannot reliably curl its own Tailscale IP. Test `http://100.66.249.14:8081/mcp` from another tailnet node, not from the Mac mini itself.
+**Smoke-test quirk:** the Mac mini cannot reliably curl its own Tailscale IP. Test `http://100.x.x.x:8081/mcp` from another tailnet node, not from the Mac mini itself.
 
 ---
 
@@ -265,7 +265,7 @@ Hermes config currently has MoA enabled (`moa.enabled: true`, OpenRouter Opus ag
 
 - Done in launchd: native HTTP MCP in Python (no supergateway/stdio wrapper)
 - Done in config: bearer auth via SDK token verifier
-- Done in launchd: bind Tailscale `100.66.249.14`, not blind `0.0.0.0`
+- Done in launchd: bind Tailscale `100.x.x.x`, not blind `0.0.0.0`
 - Verified from a separate tailnet client: no-token `/mcp` returns 401 and bearer-token initialize returns 200
 
 ### 2. Observability tables (SQLite or append-only log)

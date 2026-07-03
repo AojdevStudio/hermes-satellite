@@ -175,7 +175,7 @@ Built on:
 - 🔜 Token-derived principal mapping (beyond caller-string identity)
 - 🔜 Operator UI for the task queue, transcripts, costs, and verification state
 
-See [`ROADMAP.md`](ROADMAP.md) for the full phased plan.
+See [`ROADMAP.md`](ROADMAP.md) for the full phased plan. Public operations guidance lives in [`docs/docs/safety/`](docs/docs/safety/) and [`docs/docs/operations/`](docs/docs/operations/); run `pnpm docs:validate` before submitting docs changes.
 
 ## Contributing
 

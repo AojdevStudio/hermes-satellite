@@ -170,7 +170,7 @@
 <nav class="top"><div class="wrap">
   <div class="brand">
     <img src="./assets/aoj-logo.png" alt="AOJ Dev Studio">
-    <span class="wm">Hermes-Satellite</span>
+    <span class="wm">Hermes Satellite</span>
     <span class="ver">v0.1</span>
   </div>
   <div class="navlinks">
@@ -197,11 +197,11 @@
       <h1 class="display">Any agent<br>can execute<br>through <em>Hermes.</em></h1>
       <p class="lead">Dispatch a task to a shared machine running the Hermes Agent. Poll terminal status, fetch transcript evidence, decompose the claims, and verify the outcome — from any MCP-capable client.</p>
       <div class="cta-row">
-        <button class="cmd" type="button" onclick="(function(b){var t=b.querySelector('.cmdtext').textContent.replace(/^\$\s*/,'');var p=navigator.clipboard&&navigator.clipboard.writeText(t);p&&p.then(function(){b.querySelector('.cp').textContent='COPIED';setTimeout(function(){b.querySelector('.cp').textContent='COPY'},1200)}).catch(function(){})})(this)">
-          <span class="cmdtext"><span class="dollar">$</span> claude mcp add hermes-satellite</span>
-          <span class="cp">COPY</span>
-        </button>
-        <a class="linkarrow" href="#why"><span class="fig2">Fig. 02</span>Read the architecture <span class="ar">→</span></a>
+        <a class="cmd" href="./docs/install/" aria-label="Open the Hermes Satellite install guide">
+          <span class="cmdtext"><span class="dollar">$</span> start with the install guide</span>
+          <span class="cp">OPEN</span>
+        </a>
+        <a class="linkarrow" href="./docs/safety/"><span class="fig2">Safety</span>Read the threat model <span class="ar">→</span></a>
       </div>
       <div class="proof">
         <span class="pstep">Task dispatched</span><span class="parr">→</span>
@@ -300,8 +300,8 @@
     <span class="wm" style="font-size:19px">AOJDevStudio</span>
   </div>
   <div class="cols">
-    <div class="col"><b>Product</b><a href="#why">Dispatch</a><a href="#verify">Verification</a><a href="#mcp">Transcripts</a></div>
-    <div class="col"><b>MCP</b><a href="https://github.com/AojdevStudio/hermes-satellite/blob/main/hermes-mcp.md">Bridge</a><a href="https://github.com/AojdevStudio/hermes-satellite/blob/main/hermes-polling.md">Clients</a><a href="https://github.com/AojdevStudio/hermes-satellite/blob/main/SECURITY.md">Auth</a></div>
+    <div class="col"><b>Product</b><a href="#why">Dispatch</a><a href="#verify">Verification</a><a href="./docs/walkthrough/">Walkthrough</a></div>
+    <div class="col"><b>MCP</b><a href="./docs/bridge/">Bridge</a><a href="./docs/clients/">Clients</a><a href="./docs/safety/">Safety</a></div>
     <div class="col"><b>Project</b><a href="./docs/">Docs</a><a href="https://github.com/AojdevStudio/hermes-satellite">GitHub</a><a href="https://github.com/AojdevStudio/hermes-satellite/blob/main/ROADMAP.md">Roadmap</a></div>
   </div>
 </div></footer>

@@ -1,0 +1,32 @@
+SESSION 20260630_081522_c6e18380
+source discord
+user_message_count 11
+explicit_acceptance_markers 0
+messages_with_questions 8
+messages_with_modal_need_should_must 3
+line_counts {3: 1, 1: 4, 10: 6}
+
+USER_MESSAGE_SAMPLES
+--- index 0 msg_id 4999 chars 245
+compare the following tools https://deusdata.github.io/codebase-memory-mcp/ vs https://github.com/colbymchenry/codegraph\n\ni currently use codegraph but my codebase is getting larger and large and i would like to know which would be better to use
+--- index 11 msg_id 5105 chars 34
+Yes install it and do a comparison
+--- index 21 msg_id 5115 chars 8
+Approved
+--- index 63 msg_id 5190 chars 45
+So there’s a scenario where both can be used?
+--- index 65 msg_id 5222 chars 11303
+[Replying to: "```text\nFind Config, DashboardConfigRepository, and direct callers.\n```\n\nThat combination is better than either alone.\n\n---\n\n## Where both would be wasteful\n\nFor simple direct coding questions like:\n\n> “Where is `BearerAuthConfig` defined?”\n\nUse CodeGraph or CBM, not both. CodeGraph found that cleanly.\n\nFor broad repo questions like:\n\n> “How does this repo organize homelab deployment knowledge?”\n\nUse CBM, not CodeGraph.\n\n---\n\n## My recommendation for your machine\n\nKeep both installed.\n\nSet your "]\n\n[Context around the replied-to message]\n[Homelab-Hermes [bot]] Done — `codebase-memory-mcp` is installed and configured.\n\n## Install result\n\nInstalled:\n\n```text\ncodebase-memory-mcp 0.8.1\n```\n\nConfigured automatically for:\n\n```text\nClaude Code\nCodex CLI\nZed\nVS Code\nCursor\n```\n\nI also added it to Hermes MCP manually because the installer did not auto-detect Hermes:\n\n```text\nMCP Se
+--- index 71 msg_id 5228 chars 4753
+[Replying to: "Done — I created an editable Excalidraw diagram for the CodeGraph vs codebase-memory-mcp breakdown.\n\nMEDIA:/Users/aojdevstudio/diagrams/codegraph-vs-codebase-memory.excalidraw\n\nIt includes:\n\n- CodeGraph as the “sharp code-symbol lens”\n- codebase-memory-mcp as the “broad repo knowledge graph”\n- The recommended two-tool workflow\n- A decision guide for when to use each\n- The actual benchmark numbers from `gdrive` and `homelab`\n\nYou can drag/drop the `.excalidraw` file into Excalidraw to edit it."]\n\n[Context around the replied-to message]\n[AojDevStudio] So there’s a scenario where both can be used?\n[Homelab-Hermes [bot]] ℹ Codex gpt-5.5 caps context at 272K, so auto-compaction was raised to 85% (from 50%) to use more of the window before summarizing.\n  Opt back out: hermes config set compression.codex_gpt55_autoraise false\n[Homelab-Hermes [bot]] Yes — there is a good scenario 
+--- index 80 msg_id 5237 chars 153
+Are you not aware that we are on discord? And you should automatically optimize things for it? Do I have to set a default channel so that you stay aware?
+--- index 86 msg_id 5243 chars 1863
+[Context around the replied-to message]\n[Homelab-Hermes [bot]] Yes — I’ll turn this into an editable Excalidraw diagram and send you the `.excalidraw` file.\n[Homelab-Hermes [bot]] Done — I created an editable Excalidraw diagram for the CodeGraph vs codebase-memory-mcp breakdown.\n\nMEDIA:/Users/aojdevstudio/diagrams/codegraph-vs-codebase-memory.excalidraw\n\nIt includes:\n\n- CodeGraph as the “sharp code-symbol lens”\n- codebase-memory-mcp as the “broad repo knowledge graph”\n- The recommended two-tool workflow\n- A decision guide for when to use each\n- The actual benchmark numbers from `gdrive` and `homelab`\n\nYou can drag/drop the `.excalidraw` file into Excalidraw to edit it.\n[AojDevStudio] I can’t view it on my phone in discord?\n[Homelab-Hermes [bot]] ℹ Codex gpt-5.5 caps context at 272K, so auto-compaction was raised to 85% (from 50%) to use more of the window before summarizing.\n  Opt back o
+
+REQUIREMENT_RULES
+- Explicit dispatch/acceptance sections (## Acceptance or Acceptance:) are deterministic user_requirement sources.
+- Conversational Discord/user prose without acceptance markers is a task_request_candidate: preserve as source context, but do not require every sentence/question to become a gated user_requirement.
+- Questions and comparison prompts may define success criteria implicitly; extract them as low-confidence requirements only when they contain actionable verbs or explicit requested deliverables.
+- Follow-up user messages can narrow or override earlier requests; keep messageIndex/messageId and sequence order on every extracted requirement candidate.
+- PERFECT gating should require explicit user_requirement verdicts only for deterministic acceptance items, and report conversational candidates separately unless promoted by a dispatcher/spec wrapper.

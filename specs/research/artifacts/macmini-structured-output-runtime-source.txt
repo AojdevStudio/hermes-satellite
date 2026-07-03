@@ -1,0 +1,210 @@
+--- hermes chat help (schema flags absent) ---
+usage: hermes chat [-h] [-q QUERY] [--image IMAGE] [-m MODEL] [-t TOOLSETS]
+                   [-s SKILLS] [--provider PROVIDER] [-v] [-Q]
+                   [--resume SESSION_ID] [--continue [SESSION_NAME]]
+                   [--worktree] [--accept-hooks] [--checkpoints]
+                   [--max-turns N] [--yolo] [--pass-session-id]
+                   [--ignore-user-config] [--ignore-rules] [--safe-mode]
+                   [--source SOURCE] [--tui] [--cli] [--dev]
+
+Start an interactive chat session with Hermes Agent
+
+options:
+  -h, --help            show this help message and exit
+  -q QUERY, --query QUERY
+                        Single query (non-interactive mode)
+  --image IMAGE         Optional local image path to attach to a single query
+  -m MODEL, --model MODEL
+                        Model to use (e.g., anthropic/claude-sonnet-4)
+  -t TOOLSETS, --toolsets TOOLSETS
+                        Comma-separated toolsets to enable
+  -s SKILLS, --skills SKILLS
+                        Preload one or more skills for the session (repeat
+                        flag or comma-separate)
+  --provider PROVIDER   Inference provider (default: auto). Built-in or a
+                        user-defined name from `providers:` in config.yaml.
+  -v, --verbose         Verbose output
+  -Q, --quiet           Quiet mode for programmatic use: suppress banner,
+                        spinner, and tool previews. Only output the final
+                        response and session info.
+  --resume SESSION_ID, -r SESSION_ID
+                        Resume a previous session by ID (shown on exit)
+  --continue [SESSION_NAME], -c [SESSION_NAME]
+                        Resume a session by name, or the most recent if no
+                        name given
+  --worktree, -w        Run in an isolated git worktree (for parallel agents
+                        on the same repo)
+  --accept-hooks        Auto-approve any unseen shell hooks declared in
+                        config.yaml without a TTY prompt (see also
+                        HERMES_ACCEPT_HOOKS env var and hooks_auto_accept: in
+                        config.yaml).
+  --checkpoints         Enable filesystem checkpoints before destructive file
+                        operations (use /rollback to restore)
+  --max-turns N         Maximum tool-calling iterations per conversation turn
+                        (default: 90, or agent.max_turns in config)
+  --yolo                Bypass all dangerous command approval prompts (use at
+                        your own risk)
+  --pass-session-id     Include the session ID in the agent's system prompt
+  --ignore-user-config  Ignore ~/.hermes/config.yaml and fall back to built-in
+                        defaults (credentials in .env are still loaded).
+                        Useful for isolated CI runs, reproduction, and third-
+                        party integrations.
+  --ignore-rules        Skip auto-injection of AGENTS.md, SOUL.md,
+                        .cursorrules, memory, and preloaded skills. Combine
+                        with --ignore-user-config for a fully isolated run.
+  --safe-mode           Troubleshooting mode: disable ALL customizations —
+                        user config, AGENTS.md/memory injection, plugins, and
+                        MCP servers (implies --ignore-user-config and
+                        --ignore-rules). Use to isolate whether a problem
+                        comes from your setup or from Hermes itself.
+  --source SOURCE       Session source tag for filtering (default: cli). Use
+                        'tool' for third-party integrations that should not
+                        appear in user session lists.
+  --tui                 Launch the modern TUI instead of the classic REPL
+  --cli                 Force the classic prompt_toolkit REPL (overrides
+                        display.interface=tui)
+  --dev                 With --tui: run TypeScript sources via tsx (skip dist
+                        build)
+--- api_server non-streaming _run_agent drops response_format/output_config ---
+                session_id=session_id,
+                stream_delta_callback=_on_delta,
+                tool_start_callback=_on_tool_start,
+                tool_complete_callback=_on_tool_complete,
+                agent_ref=agent_ref,
+                gateway_session_key=gateway_session_key,
+            ))
+            # Ensure SSE drain loops can terminate without relying on polling
+            # agent_task.done(), which can race with queue timeout checks.
+            agent_task.add_done_callback(lambda _fut: _stream_q.put(None))
+
+            return await self._write_sse_chat_completion(
+                request, completion_id, model_name, created, _stream_q,
+                agent_task, agent_ref, session_id=session_id,
+                gateway_session_key=gateway_session_key,
+            )
+
+        # Non-streaming: run the agent (with optional Idempotency-Key)
+        async def _compute_completion():
+            return await self._run_agent(
+                user_message=user_message,
+                conversation_history=history,
+                ephemeral_system_prompt=system_prompt,
+                session_id=session_id,
+                gateway_session_key=gateway_session_key,
+            )
+
+        idempotency_key = request.headers.get("Idempotency-Key")
+        if idempotency_key:
+            fp = _make_request_fingerprint(body, keys=["model", "messages", "tools", "tool_choice", "stream"])
+            try:
+                result, usage = await _idem_cache.get_or_set(idempotency_key, fp, _compute_completion)
+            except Exception as e:
+                logger.error("Error running agent for chat completions: %s", e, exc_info=True)
+                return web.json_response(
+                    _openai_error(f"Internal server error: {e}", err_type="server_error"),
+                    status=500,
+                )
+        else:
+--- plugin_llm structured helper builds response_format and validates ---
+
+    @staticmethod
+    def _json_response_format(
+        *, json_mode: bool, json_schema: Optional[Any]
+    ) -> Optional[Dict[str, Any]]:
+        """Build the ``extra_body.response_format`` payload for the
+        provider request. Falls back to ``json_object`` when no schema
+        is given so providers that ignore json_schema still get a hint."""
+        if json_schema is not None:
+            return {
+                "response_format": {
+                    "type": "json_schema",
+                    "json_schema": {
+                        "name": "plugin_structured_output",
+                        "schema": json_schema,
+                        "strict": False,
+                    },
+                }
+            }
+        if json_mode:
+            return {"response_format": {"type": "json_object"}}
+        return None
+
+    def _invoke_sync(
+        self,
+    match = _FENCE_RE.search(text)
+    if match:
+        return match.group(1).strip()
+    return text.strip()
+
+
+def _parse_structured_text(
+    *, text: str, json_mode: bool, json_schema: Optional[Any]
+) -> tuple[Optional[Any], str]:
+    """Return ``(parsed, content_type)``. ``content_type`` is ``"json"``
+    when parsing succeeded and (when a schema was given) validation
+    passed; ``"text"`` otherwise."""
+    if not (json_mode or json_schema is not None):
+        return None, "text"
+    if not text:
+        return None, "text"
+
+    try:
+        parsed = json.loads(_strip_code_fences(text))
+    except (json.JSONDecodeError, ValueError):
+        return None, "text"
+
+    if json_schema is not None:
+        try:
+            import jsonschema  # type: ignore[import-untyped]
+            jsonschema.validate(parsed, json_schema)
+        except ImportError:
+            # jsonschema is optional; skip strict validation when absent.
+            logger.debug("jsonschema unavailable; skipping schema validation")
+        except jsonschema.ValidationError as exc:  # type: ignore[attr-defined]
+            raise ValueError(
+                f"Plugin LLM structured output did not match schema: {exc.message}"
+            ) from exc
+
+    return parsed, "json"
+
+--- source search summary ---
+/Users/aojdevstudio/.hermes/hermes-agent/agent/plugin_llm.py:22:* ``complete_structured(instructions=..., input=[...], json_schema=...)``
+/Users/aojdevstudio/.hermes/hermes-agent/agent/plugin_llm.py:25:* async siblings ``acomplete()`` / ``acomplete_structured()`` for
+/Users/aojdevstudio/.hermes/hermes-agent/agent/plugin_llm.py:141:    """Result of :meth:`PluginLlm.complete_structured`.
+/Users/aojdevstudio/.hermes/hermes-agent/agent/plugin_llm.py:143:    ``parsed`` is set only when ``json_mode=True`` or ``json_schema`` is
+/Users/aojdevstudio/.hermes/hermes-agent/agent/plugin_llm.py:379:    json_schema: Optional[Any],
+/Users/aojdevstudio/.hermes/hermes-agent/agent/plugin_llm.py:394:    if json_mode or json_schema is not None:
+/Users/aojdevstudio/.hermes/hermes-agent/agent/plugin_llm.py:406:    if json_schema is not None:
+/Users/aojdevstudio/.hermes/hermes-agent/agent/plugin_llm.py:408:            schema_text = json.dumps(json_schema, ensure_ascii=False, sort_keys=True)
+/Users/aojdevstudio/.hermes/hermes-agent/agent/plugin_llm.py:410:            schema_text = str(json_schema)
+/Users/aojdevstudio/.hermes/hermes-agent/agent/plugin_llm.py:457:    *, text: str, json_mode: bool, json_schema: Optional[Any]
+/Users/aojdevstudio/.hermes/hermes-agent/agent/plugin_llm.py:462:    if not (json_mode or json_schema is not None):
+/Users/aojdevstudio/.hermes/hermes-agent/agent/plugin_llm.py:472:    if json_schema is not None:
+/Users/aojdevstudio/.hermes/hermes-agent/agent/plugin_llm.py:475:            jsonschema.validate(parsed, json_schema)
+/Users/aojdevstudio/.hermes/hermes-agent/agent/plugin_llm.py:683:    def complete_structured(
+/Users/aojdevstudio/.hermes/hermes-agent/agent/plugin_llm.py:688:        json_schema: Optional[Any] = None,
+/Users/aojdevstudio/.hermes/hermes-agent/agent/plugin_llm.py:705:        ``json_mode=True`` or ``json_schema`` is provided, the response
+/Users/aojdevstudio/.hermes/hermes-agent/agent/plugin_llm.py:714:            raise ValueError("complete_structured requires non-empty instructions")
+/Users/aojdevstudio/.hermes/hermes-agent/agent/plugin_llm.py:716:            raise ValueError("complete_structured requires at least one input block")
+/Users/aojdevstudio/.hermes/hermes-agent/agent/plugin_llm.py:731:            json_schema=json_schema,
+/Users/aojdevstudio/.hermes/hermes-agent/agent/plugin_llm.py:735:        extra_body = self._json_response_format(json_mode=json_mode, json_schema=json_schema)
+/Users/aojdevstudio/.hermes/hermes-agent/agent/plugin_llm.py:750:            text=text, json_mode=json_mode, json_schema=json_schema
+/Users/aojdevstudio/.hermes/hermes-agent/agent/plugin_llm.py:768:            "plugin_llm.complete_structured plugin=%s provider=%s model=%s "
+/Users/aojdevstudio/.hermes/hermes-agent/agent/plugin_llm.py:823:    async def acomplete_structured(
+/Users/aojdevstudio/.hermes/hermes-agent/agent/plugin_llm.py:828:        json_schema: Optional[Any] = None,
+/Users/aojdevstudio/.hermes/hermes-agent/agent/plugin_llm.py:841:        """Async sibling of :meth:`complete_structured`."""
+/Users/aojdevstudio/.hermes/hermes-agent/agent/plugin_llm.py:843:            raise ValueError("acomplete_structured requires non-empty instructions")
+/Users/aojdevstudio/.hermes/hermes-agent/agent/plugin_llm.py:845:            raise ValueError("acomplete_structured requires at least one input block")
+/Users/aojdevstudio/.hermes/hermes-agent/agent/plugin_llm.py:859:            json_schema=json_schema,
+/Users/aojdevstudio/.hermes/hermes-agent/agent/plugin_llm.py:863:        extra_body = self._json_response_format(json_mode=json_mode, json_schema=json_schema)
+/Users/aojdevstudio/.hermes/hermes-agent/agent/plugin_llm.py:877:            text=text, json_mode=json_mode, json_schema=json_schema
+/Users/aojdevstudio/.hermes/hermes-agent/agent/plugin_llm.py:898:    def _json_response_format(
+/Users/aojdevstudio/.hermes/hermes-agent/agent/plugin_llm.py:899:        *, json_mode: bool, json_schema: Optional[Any]
+/Users/aojdevstudio/.hermes/hermes-agent/agent/plugin_llm.py:901:        """Build the ``extra_body.response_format`` payload for the
+/Users/aojdevstudio/.hermes/hermes-agent/agent/plugin_llm.py:903:        is given so providers that ignore json_schema still get a hint."""
+/Users/aojdevstudio/.hermes/hermes-agent/agent/plugin_llm.py:904:        if json_schema is not None:
+/Users/aojdevstudio/.hermes/hermes-agent/agent/plugin_llm.py:906:                "response_format": {
+/Users/aojdevstudio/.hermes/hermes-agent/agent/plugin_llm.py:907:                    "type": "json_schema",
+/Users/aojdevstudio/.hermes/hermes-agent/agent/plugin_llm.py:908:                    "json_schema": {
+/Users/aojdevstudio/.hermes/hermes-agent/agent/plugin_llm.py:910:                        "schema": json_schema,
+/Users/aojdevstudio/.hermes/hermes-agent/agent/plugin_llm.py:916:            return {"response_format": {"type": "json_object"}}

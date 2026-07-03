@@ -1,0 +1,32 @@
+TokenVerifier source
+class TokenVerifier(Protocol):
+    """Protocol for verifying bearer tokens."""
+
+    async def verify_token(self, token: str) -> AccessToken | None:
+        """Verify a bearer token and return access info if valid."""
+
+FastMCP.run (self, transport: "Literal['stdio', 'sse', 'streamable-http']" = 'stdio', mount_path: 'str | None' = None) -> 'None'
+    def run(
+        self,
+        transport: Literal["stdio", "sse", "streamable-http"] = "stdio",
+        mount_path: str | None = None,
+    ) -> None:
+        """Run the FastMCP server. Note this is a synchronous function.
+
+        Args:
+            transport: Transport protocol to use ("stdio", "sse", or "streamable-http")
+            mount_path: Optional mount path for SSE transport
+        """
+        TRANSPORTS = Literal["stdio", "sse", "streamable-http"]
+        if transport not in TRANSPORTS.__args__:  # type: ignore  # pragma: no cover
+            raise ValueError(f"Unknown transport: {transport}")
+
+        match transport:
+            case "stdio":
+                anyio.run(self.run_stdio_async)
+            case "sse":  # pragma: no cover
+                anyio.run(lambda: self.run_sse_async(mount_path))
+            case "streamable-http":  # pragma: no cover
+                anyio.run(self.run_streamable_http_async)
+
+OK 127.0.0.1 8081 /mcp StaticBearerVerifier

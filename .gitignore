@@ -19,6 +19,7 @@ secrets/
 .LSOverride
 Icon?
 ._*
+.smbdelete*
 *.swp
 *.swo
 *~
@@ -114,9 +115,11 @@ hermes-async-bridge-transcripts/
 # Local agent indexes and generated analysis caches
 .codegraph/
 .codebase-memory/
-.auto/log.jsonl
-.auto/tmp/
-.auto/cache/
+# Local agent automation (internal research tooling; not published)
+.auto/
+
+# Internal operator handoffs (keep local only)
+specs/handoff-*.md
 
 # Vendored reference docs copied from upstream tools; regenerate or link instead
 ai_docs/

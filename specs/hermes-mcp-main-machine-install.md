@@ -1,17 +1,17 @@
 # Hermes MCP bridge — main machine install handoff
 
 Date: 2026-07-02
-Audience: documentation/install agent on Ossie's main machine
+Audience: operators installing the MCP client on a developer machine
 
 ## Bottom line
 
 The Mac mini bridge is no longer the old `supergateway` stdio wrapper. It is now intended to be consumed as a remote HTTP MCP server:
 
-- URL: `http://<bridge-host>:8081/mcp`
+- URL: `http://100.x.x.x:8081/mcp`
 - Transport: Streamable HTTP MCP
 - Auth: `Authorization: Bearer <HERMES_MCP_TOKEN>`
-- Token source for this repo checkout: `/Volumes/AgentStorage/the-bridge/the-verifier-agent/.env`
-- Token canonical source: BWS secret `HERMES_ASYNC_BRIDGE_TOKEN`
+- Token source for this repo checkout: `<repo-root>/.env`
+- Token canonical source: your secrets manager entry for `HERMES_ASYNC_BRIDGE_TOKEN`
 
 Do not configure this as a local command/stdio server on the main machine. The Mac mini is the server; the main machine is only a client.
 
@@ -19,15 +19,15 @@ Do not configure this as a local command/stdio server on the main machine. The M
 
 Verified locally on the Mac mini before this handoff:
 
-- launchd label: `<launchd-label>`
-- ProgramArguments: `/Users/<user>/.hermes/scripts/run_hermes_async_bridge.sh`
-- Listener: Python process on `<bridge-host>:8081`
+- launchd label: `com.example.hermes-async-bridge`
+- ProgramArguments: `~/.hermes/scripts/run_hermes_async_bridge.sh`
+- Listener: Python process on `100.x.x.x:8081`
 - Canonical repo script: `apps/hermes-async-bridge/hermes_async_bridge.py`
-- Runtime symlink: `/Users/<user>/.hermes/scripts/hermes_async_bridge.py`
-- Runtime token cache: `/Users/<user>/.hermes/secrets/hermes_async_bridge_token`
-- BWS mirror: `HERMES_ASYNC_BRIDGE_TOKEN`
+- Runtime symlink: `~/.hermes/scripts/hermes_async_bridge.py`
+- Runtime token cache: `~/.hermes/secrets/hermes_async_bridge_token`
+- Secrets manager mirror: `HERMES_ASYNC_BRIDGE_TOKEN`
 
-Auth has since been verified from MBP13 as the client: no-token initialize returned 401, and bearer-token initialize returned 200 with a clean native FastMCP response. New clients should still run the same checks after install to catch local token/config mistakes.
+Auth has been verified from a separate tailnet client: no-token initialize returned 401, and bearer-token initialize returned 200 with a clean native FastMCP response. New clients should still run the same checks after install to catch local token/config mistakes.
 
 ## Install objective on main machine
 
@@ -50,7 +50,7 @@ Edit `~/.hermes/config.yaml` on the main machine and add:
 ```yaml
 mcp_servers:
   hermes_async:
-    url: "http://<bridge-host>:8081/mcp"
+    url: "http://100.x.x.x:8081/mcp"
     headers:
       Authorization: "Bearer ${HERMES_MCP_TOKEN}"
     timeout: 180
@@ -62,7 +62,7 @@ If Hermes config does not expand `${HERMES_MCP_TOKEN}` in YAML headers in the in
 Alternative CLI starting point, if the current Hermes build supports header-auth setup interactively:
 
 ```bash
-hermes mcp add hermes_async --url http://<bridge-host>:8081/mcp --auth header
+hermes mcp add hermes_async --url http://100.x.x.x:8081/mcp --auth header
 ```
 
 Then inspect `~/.hermes/config.yaml` and ensure it has an Authorization header using the Bearer scheme.
@@ -76,7 +76,7 @@ Important quirk: the Mac mini cannot reliably curl its own Tailscale IP. Do not 
 ### 1. Network health
 
 ```bash
-curl -fsS http://<bridge-host>:8081/healthz
+curl -fsS http://100.x.x.x:8081/healthz
 ```
 
 Expected: `ok`.
@@ -87,7 +87,7 @@ Send MCP initialize with no `Authorization` header.
 
 Expected: HTTP `401` or `403`.
 
-Known-good reference from MBP13: HTTP `401`.
+Expected: HTTP `401`.
 
 If a tokenless request returns a normal MCP initialize response, auth is not real. Stop and report this as a blocker.
 
@@ -103,7 +103,7 @@ Content-Type: application/json
 
 Expected: HTTP 200/202-class MCP response with initialize result and/or an `mcp-session-id` header.
 
-Known-good reference from MBP13: HTTP `200` with a clean initialize response.
+Expected: HTTP `200` with a clean initialize response.
 
 ### 4. MCP client discovery
 
@@ -143,18 +143,18 @@ For the completed task/session, verify:
 - Do not reintroduce `supergateway` for this bridge.
 - Do not bind the server to `0.0.0.0`.
 - Do not put the token in committed docs, PR bodies, screenshots, or logs.
-- Tailscale route is preferred. LAN `<bridge-host>` is not the deployed bind right now.
+- Tailscale route is preferred. LAN `10.x.x.x` is not the deployed bind right now.
 - `/healthz` can be unauthenticated; it does not prove MCP tool auth. Only the no-token `/mcp` negative test proves auth enforcement.
 
 ## Troubleshooting
 
-- Connection refused: check Tailscale connectivity to `<bridge-host>` and that launchd is listening on Mac mini.
-- 401/403 with token: verify local token matches BWS `HERMES_ASYNC_BRIDGE_TOKEN` and repo `.env` value.
+- Connection refused: check Tailscale connectivity to `100.x.x.x` and that launchd is listening on Mac mini.
+- 401/403 with token: verify local token matches the bridge operator's `HERMES_ASYNC_BRIDGE_TOKEN` and repo `.env` value.
 - Tools absent after config: restart Hermes; MCP discovery happens at startup.
 - HTTP transport unsupported: upgrade/install Python `mcp` package for the client Hermes environment.
 - Result never completes: use `hermes_status`, then check Mac mini logs:
-  - `/Users/<user>/Library/Logs/hermes-async-bridge.log`
-  - `/Users/<user>/Library/Logs/hermes-async-bridge.err.log`
+  - `~/Library/Logs/hermes-async-bridge.log`
+  - `~/Library/Logs/hermes-async-bridge.err.log`
 
 ## Report back format
 
@@ -162,7 +162,7 @@ When done, report:
 
 ```text
 STATUS: PASS|FAIL
-Endpoint: http://<bridge-host>:8081/mcp
+Endpoint: http://100.x.x.x:8081/mcp
 Negative auth: <HTTP status>
 Positive auth: <HTTP status / initialized?>
 Discovered tools: <count + key names>

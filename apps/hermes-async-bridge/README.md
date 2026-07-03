@@ -28,12 +28,12 @@ This is the canonical repo copy intended to replace the prototype `~/.hermes/scr
 ## Launch example
 
 ```bash
-export HERMES_HOME=/Users/<user>/.hermes
+export HERMES_HOME=~/.hermes
 export HERMES_ASYNC_BRIDGE_TOKEN='<shared bearer token>'
-export HERMES_ASYNC_BRIDGE_HOST=<bridge-host>
+export HERMES_ASYNC_BRIDGE_HOST=100.x.x.x
 export HERMES_ASYNC_BRIDGE_PORT=8081
-/Users/<user>/.hermes/hermes-agent/venv/bin/python3 \
-  /Volumes/AgentStorage/the-bridge/the-verifier-agent/apps/hermes-async-bridge/hermes_async_bridge.py
+~/.hermes/hermes-agent/venv/bin/python3 \
+  <repo-root>/apps/hermes-async-bridge/hermes_async_bridge.py
 ```
 
 The legacy `supergateway` command should be removed once launchd points directly at this script.
@@ -41,7 +41,7 @@ The legacy `supergateway` command should be removed once launchd points directly
 ## Deployment shape
 
 Generate the bearer token once from the OS CSPRNG. Do not print it in logs,
-commit it, or put it directly in the plist. BWS is canonical; the local file is
+commit it, or put it directly in the plist. Your secrets manager is canonical; the local file is
 only the runtime cache.
 
 Deployment checklist:
@@ -60,11 +60,11 @@ Deployment checklist:
    process listening on the socket.
 
 ```bash
-ln -sf /Volumes/AgentStorage/the-bridge/the-verifier-agent/apps/hermes-async-bridge/hermes_async_bridge.py \
-  /Users/<user>/.hermes/scripts/hermes_async_bridge.py
+ln -sf <repo-root>/apps/hermes-async-bridge/hermes_async_bridge.py \
+  ~/.hermes/scripts/hermes_async_bridge.py
 ```
 
-Then update `/Users/<user>/Library/LaunchAgents/<launchd-label>.plist` to run the Hermes venv Python directly rather than `npx supergateway`.
+Then update `~/Library/LaunchAgents/com.example.hermes-async-bridge.plist` to run the Hermes venv Python directly rather than `npx supergateway`.
 
 ## Verification
 
@@ -77,7 +77,7 @@ python3 -m py_compile apps/hermes-async-bridge/hermes_async_bridge.py
 Runtime verification must use the Hermes venv, which is expected to have `mcp>=1.26,<2`:
 
 ```bash
-/Users/<user>/.hermes/hermes-agent/venv/bin/python3 - <<'PY'
+~/.hermes/hermes-agent/venv/bin/python3 - <<'PY'
 from pathlib import Path
 import importlib.util
 path = Path('apps/hermes-async-bridge/hermes_async_bridge.py')

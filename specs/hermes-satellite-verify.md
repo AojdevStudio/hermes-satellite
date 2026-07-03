@@ -1,6 +1,6 @@
 # Hermes Satellite Verify — Implementation Plan
 
-> **Audience:** Hermes (Mac mini operator), Pi coding agent (wiring), Claude Code + Codex (independent verification), Ossie (operator).
+> **Audience:** Hermes (Mac mini operator), Pi coding agent (wiring), Claude Code + Codex (independent verification), and the human operator.
 >
 > **Repo:** `the-verifier-agent`
 >
@@ -98,7 +98,7 @@ Hermes retains full capability. Cost surprises from vague prompts are a **dispat
                              ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │  MAC MINI — MCP SERVER (hermes_async_bridge.py)                 │
-│  Tailscale <bridge-host>:8081  or  LAN <bridge-host>:8081         │
+│  Tailscale 100.x.x.x:8081  or  LAN 10.x.x.x:8081         │
 │                                                                 │
 │  SQLite: tasks, events, (future: costs, callbacks)              │
 │  spawn: hermes chat -q … --resume <session_id>                  │
@@ -600,7 +600,7 @@ hermes-dispatch:
 **Manual smoke test:**
 
 ```bash
-export HERMES_MCP_URL=http://<bridge-host>:8081/mcp
+export HERMES_MCP_URL=http://100.x.x.x:8081/mcp
 export HERMES_MCP_TOKEN=<token>
 just hermes-dispatch
 # Prompt: "Reply with the word PONG and nothing else."
@@ -671,8 +671,8 @@ just hermes-dispatch
 | Task | Detail |
 |------|--------|
 | **Transport** | Native Streamable HTTP MCP in Python; remove `supergateway` + stdio. Confirmed: installed `mcp 1.26.0` already exposes `FastMCP(token_verifier=..., auth=AuthSettings(...), host, port, streamable_http_path)` and a static bearer verifier instantiates on the live venv. Pin `mcp>=1.26,<2`. See `.auto/research/hermes-phase4-blockers.md` section 1. |
-| **Auth** | Bearer via SDK `token_verifier` + `AuthSettings` (not an ad-hoc header hack); reject unauthenticated. **Verified 2026-07-02:** MBP13 no-token initialize returned 401, bearer-token initialize returned 200 from the native FastMCP server. `/healthz` and custom routes may be intentionally unauthenticated and are NOT proof that MCP auth protects tools. |
-| **Bind** | Tailscale IP `<bridge-host>` (+ LAN `<bridge-host>` when home); never blind `0.0.0.0`. TLS optional on Tailscale/private LAN, required at any public/Traefik edge. |
+| **Auth** | Bearer via SDK `token_verifier` + `AuthSettings` (not an ad-hoc header hack); reject unauthenticated. **Verified 2026-07-02:** A separate tailnet client: no-token initialize returned 401, bearer-token initialize returned 200 from the native FastMCP server. `/healthz` and custom routes may be intentionally unauthenticated and are NOT proof that MCP auth protects tools. |
+| **Bind** | Tailscale IP `100.x.x.x` (+ LAN `10.x.x.x` when home); never blind `0.0.0.0`. TLS optional on Tailscale/private LAN, required at any public/Traefik edge. |
 | **Observability** | SQLite tables: `mcp_events`, `task_runs`, **`task_costs`** (see [Cost telemetry](#cost-telemetry)) |
 | **Cost capture** | On terminal: read session token counters from `state.db`; attach to `hermes_result` + callback |
 | **Transcript bridge** | `hermes_transcript` MCP tool: export from `state.db` post-task; optional link to `session_id` in callback |
@@ -785,7 +785,7 @@ Local unix socket IPC remains unchanged for `just v` (builder + verifier child).
 
 ```bash
 # Required for Hermes MCP client
-HERMES_MCP_URL=http://<bridge-host>:8081/mcp
+HERMES_MCP_URL=http://100.x.x.x:8081/mcp
 HERMES_MCP_TOKEN=
 
 # Optional: receive bridge completion callbacks (Phase 4)
@@ -797,7 +797,7 @@ HERMES_CALLBACK_SECRET=
 
 ```json
 {
-  "url": "http://<bridge-host>:8081/mcp",
+  "url": "http://100.x.x.x:8081/mcp",
   "headers": {
     "Authorization": "Bearer <HERMES_MCP_TOKEN>"
   }
@@ -808,9 +808,9 @@ HERMES_CALLBACK_SECRET=
 
 | | Today | Target |
 |---|-------|--------|
-| Endpoint | `http://<bridge-host>:8081/mcp` | Tailscale + auth |
+| Endpoint | `http://100.x.x.x:8081/mcp` | Tailscale + auth |
 | Wrapper | native Streamable HTTP (`mcp` SDK `FastMCP` + `token_verifier`) | native Streamable HTTP (`mcp` SDK `FastMCP` + `token_verifier`) |
-| Auth | Bearer required; verified no-token 401 / bearer 200 from MBP13 | Bearer required |
+| Auth | Bearer required; verified no-token 401 / bearer 200 from a separate tailnet client | Bearer required |
 
 Paths: see [`hermes-mcp.md`](../hermes-mcp.md).
 
@@ -912,7 +912,7 @@ From `.pi/verifier/agents/verifier.md`. The `STATUS` column is added because `pa
 
 ## Message for Hermes
 
-You are the **executor and bridge operator** on the Mac mini. Clients on Ossie’s MacBook (and elsewhere) will send work through your MCP server; they will not do that work locally. Your job in this plan is:
+You are the **executor and bridge operator** on the Mac mini. Clients on developer laptops (and elsewhere) will send work through your MCP server; they will not do that work locally. Your job in this plan is:
 
 1. **Run** tasks via `hermes chat` subprocesses with full agent capability when the prompt asks for it.
 2. **Expose** a stable, authenticated HTTP MCP API (target: no supergateway).
@@ -925,4 +925,4 @@ Hermes already records rich evidence (tool names, token counts, FTS search) in *
 
 The verification discipline (decompose claims, evidence not assertions, confidence grades, loop limits) lives in this repo’s personas. Your bridge is the **transport, execution, and evidence-export layer**; the clients own **dispatch quality** and **verify loops**.
 
-When Phase 4 starts, treat `specs/hermes-satellite-verify.md` and `hermes-mcp.md` as the contract. Ping Ossie if callback URL shape or auth token rotation needs a decision.
+When Phase 4 starts, treat `specs/hermes-satellite-verify.md` and `hermes-mcp.md` as the contract. Open an issue if callback URL shape or auth token rotation needs a decision.

@@ -6,7 +6,7 @@
  */
 
 export interface HermesConfig {
-  /** Streamable HTTP MCP endpoint, e.g. http://<bridge-host>:8081/mcp */
+  /** Streamable HTTP MCP endpoint, e.g. http://100.x.x.x:8081/mcp */
   mcpUrl: string;
   /** Bearer token for bridge auth. */
   mcpToken: string;
@@ -32,7 +32,7 @@ export function loadHermesConfig(env: NodeJS.ProcessEnv = process.env): HermesCo
 
   if (!mcpUrl) {
     throw new HermesConfigError(
-      "HERMES_MCP_URL is required (e.g. http://<bridge-host>:8081/mcp)",
+      "HERMES_MCP_URL is required (e.g. http://100.x.x.x:8081/mcp)",
     );
   }
   if (!mcpToken) {

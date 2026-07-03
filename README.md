@@ -14,21 +14,21 @@ Hermes Satellite turns a Mac mini running Hermes Agent into a shared, authentica
 - `hermes-mcp.md` — current Mac mini bridge architecture and operational state.
 - `specs/hermes-mcp-main-machine-install.md` — handoff for installing the client config on another machine.
 
-## Current deployed bridge
+## Example deployment
 
-The Mac mini bridge is native FastMCP over Streamable HTTP:
+A typical bridge runs as native FastMCP over Streamable HTTP on a dedicated host (often a Mac mini on Tailscale):
 
-- MCP URL: `http://<bridge-host>:8081/mcp`
-- Health URL: `http://<bridge-host>:8081/healthz`
+- MCP URL: `http://100.x.x.x:8081/mcp` (replace with your bridge host's Tailscale or LAN IP)
+- Health URL: `http://100.x.x.x:8081/healthz`
 - Auth: `Authorization: Bearer <HERMES_MCP_TOKEN>`
-- launchd wrapper: `/Users/<user>/.hermes/scripts/run_hermes_async_bridge.sh`
+- launchd wrapper: `~/.hermes/scripts/run_hermes_async_bridge.sh`
 
-Auth has been verified from another tailnet node:
+Auth should be verified from a **separate** tailnet node (not from the bridge host itself):
 
 - no-token MCP initialize → HTTP 401
 - bearer-token MCP initialize → HTTP 200
 
-Operational quirk: the Mac mini cannot reliably curl its own Tailscale IP. Smoke-test the bridge from another tailnet node.
+Operational quirk: the bridge host often cannot reliably curl its own Tailscale IP. Smoke-test from another tailnet node.
 
 ## Quick start for a client machine
 
@@ -38,7 +38,7 @@ Operational quirk: the Mac mini cannot reliably curl its own Tailscale IP. Smoke
 ```yaml
 mcp_servers:
   hermes_async:
-    url: "http://<bridge-host>:8081/mcp"
+    url: "http://100.x.x.x:8081/mcp"
     headers:
       Authorization: "Bearer ${HERMES_MCP_TOKEN}"
     timeout: 180

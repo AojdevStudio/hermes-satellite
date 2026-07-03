@@ -1,0 +1,14 @@
+{
+  "name": "hermes-satellite-workspace",
+  "private": true,
+  "packageManager": "pnpm@9.15.9",
+  "description": "Remote Hermes execution and satellite verification over authenticated MCP.",
+  "scripts": {
+    "changeset": "changeset",
+    "changeset:status": "changeset status",
+    "version-packages": "changeset version"
+  },
+  "devDependencies": {
+    "@changesets/cli": "^2.29.8"
+  }
+}

@@ -147,6 +147,20 @@ This started with a non-engineer breaking a bash `while` loop down from first pr
 
 Every implementation of both lived on a single box. The realization that became this repo: put a network between the executor and the verifier, and the choice between in-loop and on-event verification stops being an architecture you bake in - it becomes a per-task knob you set at dispatch. That's the satellite. Two reading threads, finally meeting in one artifact.
 
+## Credits and lineage
+
+The thinking here isn't mine alone. Hermes Satellite is where a handful of other people's ideas met, and they deserve the credit:
+
+- **[AI Jason](https://www.youtube.com/@AIJasonZ) (Jason Zhou)** for loop engineering, the inner/outer-loop split, and compounding loops through a shared artifact system. His [loop-engineer-template](https://github.com/JayZeeDesign/loop-engineer-template) is where a lot of it got concrete for me.
+- **[Peter Steinberger](https://steipete.me)** for "you should be designing loops that prompt your agents." His [agent-scripts](https://github.com/steipete/agent-scripts) orchestrator and skills are the shape I kept coming back to.
+- **[IndyDevDan](https://www.youtube.com/@indydevdan) (Dan Disler)** for the verifier-agent pattern: decompose the work into atomic claims and prove each one. This repo grew out of his [the-verifier-agent](https://github.com/disler/the-verifier-agent), and the satellite is that pattern pushed across a network.
+- **[Matt Pocock](https://www.aihero.dev)** whose [`/teach` skill](https://github.com/mattpocock/skills) is what helped me actually work out my own ideas for how I wanted to build loops, instead of copying someone else's.
+
+Built on:
+
+- **[Hermes Agent](https://github.com/NousResearch/hermes-agent) by Nous Research**, the self-improving agent that does the real work on the host side. The satellite dispatches to it and verifies what it did.
+- **[FastMCP](https://github.com/jlowin/fastmcp)**, the Pythonic MCP framework the authenticated bridge is built on.
+
 ## Roadmap
 
 - ✅ Native authenticated HTTP bridge, ten core `hermes_*` tools, polling contract, zero-token watcher

@@ -60,6 +60,7 @@ PUBLIC_BASE_URL = os.environ.get("HERMES_ASYNC_BRIDGE_PUBLIC_URL", f"http://{DEF
 STREAMABLE_PATH = os.environ.get("HERMES_ASYNC_BRIDGE_PATH", "/mcp")
 ISSUER_URL = os.environ.get("HERMES_ASYNC_BRIDGE_ISSUER", "https://hermes.local")
 REQUIRED_SCOPES = tuple(s.strip() for s in os.environ.get("HERMES_ASYNC_BRIDGE_SCOPES", "hermes:submit").split(",") if s.strip())
+ALLOWED_PROFILES = tuple(s.strip() for s in os.environ.get("HERMES_ASYNC_BRIDGE_PROFILES", "builder").split(",") if s.strip())
 
 TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
 
@@ -69,6 +70,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     task_id       TEXT PRIMARY KEY,
     parent_task_id TEXT,
     session_id    TEXT,
+    profile       TEXT,
     status        TEXT NOT NULL DEFAULT 'pending',
     prompt        TEXT NOT NULL,
     result        TEXT,
@@ -255,30 +257,30 @@ class TaskManager:
         self._lock = threading.Lock()
         self._running: dict[str, subprocess.Popen[bytes]] = {}
 
-    def submit(self, prompt: str, *, caller: str = "", callback_url: str | None = None) -> str:
+    def submit(self, prompt: str, *, caller: str = "", callback_url: str | None = None, profile: str | None = None) -> str:
         task_id = str(uuid.uuid4())[:12]
         now = time.time()
         conn = get_db()
         try:
             conn.execute(
                 """
-                INSERT INTO tasks (task_id, status, prompt, caller, callback_url, created_at, followups)
-                VALUES (?, 'pending', ?, ?, ?, ?, '[]')
+                INSERT INTO tasks (task_id, status, prompt, caller, callback_url, profile, created_at, followups)
+                VALUES (?, 'pending', ?, ?, ?, ?, ?, '[]')
                 """,
-                (task_id, prompt, caller, callback_url, now),
+                (task_id, prompt, caller, callback_url, profile, now),
             )
             conn.commit()
         finally:
             conn.close()
-        log_event("submit", task_id=task_id, caller=caller, payload={"prompt_chars": len(prompt), "callback": bool(callback_url)})
-        threading.Thread(target=self._run_task, args=(task_id, prompt, None), daemon=True).start()
+        log_event("submit", task_id=task_id, caller=caller, payload={"prompt_chars": len(prompt), "callback": bool(callback_url), "profile": profile})
+        threading.Thread(target=self._run_task, args=(task_id, prompt, None, profile), daemon=True).start()
         return task_id
 
     def submit_followup(self, task_id: str, prompt: str, *, callback_url: str | None = None) -> str:
         conn = get_db()
         try:
             row = conn.execute(
-                "SELECT session_id, caller, callback_url FROM tasks WHERE task_id = ?",
+                "SELECT session_id, caller, callback_url, profile FROM tasks WHERE task_id = ?",
                 (task_id,),
             ).fetchone()
         finally:
@@ -287,6 +289,7 @@ class TaskManager:
             return ""
 
         session_id = row["session_id"]
+        inherited_profile = row["profile"]
         new_task_id = str(uuid.uuid4())[:12]
         inherited_callback = callback_url if callback_url is not None else row["callback_url"]
         now = time.time()
@@ -294,10 +297,10 @@ class TaskManager:
         try:
             conn.execute(
                 """
-                INSERT INTO tasks (task_id, parent_task_id, session_id, status, prompt, caller, callback_url, created_at, followups)
-                VALUES (?, ?, ?, 'pending', ?, 'followup', ?, ?, '[]')
+                INSERT INTO tasks (task_id, parent_task_id, session_id, status, prompt, caller, callback_url, profile, created_at, followups)
+                VALUES (?, ?, ?, 'pending', ?, 'followup', ?, ?, ?, '[]')
                 """,
-                (new_task_id, task_id, session_id, prompt, inherited_callback, now),
+                (new_task_id, task_id, session_id, prompt, inherited_callback, inherited_profile, now),
             )
             conn.execute(
                 "UPDATE tasks SET followups = json_insert(COALESCE(followups, '[]'), '$[#]', json(?)) WHERE task_id = ?",
@@ -306,8 +309,8 @@ class TaskManager:
             conn.commit()
         finally:
             conn.close()
-        log_event("respond", task_id=new_task_id, caller="followup", payload={"parent_task_id": task_id})
-        threading.Thread(target=self._run_task, args=(new_task_id, prompt, session_id), daemon=True).start()
+        log_event("respond", task_id=new_task_id, caller="followup", payload={"parent_task_id": task_id, "profile": inherited_profile})
+        threading.Thread(target=self._run_task, args=(new_task_id, prompt, session_id, inherited_profile), daemon=True).start()
         return new_task_id
 
     def get_status(self, task_id: str) -> dict[str, Any] | None:
@@ -463,11 +466,14 @@ class TaskManager:
             log_event("retention_cleanup", payload={"deleted": deleted, "retention_hours": RETENTION_HOURS})
         return deleted
 
-    def _run_task(self, task_id: str, prompt: str, session_id: str | None) -> None:
+    def _run_task(self, task_id: str, prompt: str, session_id: str | None, profile: str | None = None) -> None:
         self._semaphore.acquire()
         run_id: int | None = None
         started_at = time.time()
-        cmd = [HERMES_BIN, "chat", "-q", prompt, "-Q", "--yolo", "--pass-session-id", "--source", "tool"]
+        cmd = [HERMES_BIN]
+        if profile:
+            cmd.extend(["-p", profile])
+        cmd.extend(["chat", "-q", prompt, "-Q", "--yolo", "--pass-session-id", "--source", "tool"])
         if session_id:
             cmd.extend(["--resume", session_id])
         try:
@@ -967,14 +973,17 @@ def create_mcp_server(*, host: str, port: int, token: str | None, allow_unauthen
     task_mgr = TaskManager()
 
     @mcp.tool()
-    def hermes_submit(prompt: str, caller: str = "", callback_url: str = "") -> str:
+    def hermes_submit(prompt: str, caller: str = "", callback_url: str = "", profile: str = "") -> str:
         if not prompt or not prompt.strip():
             return _json_dumps({"error": "prompt is required"})
         prompt = prompt.strip()
         if len(prompt) > 20000:
             return _json_dumps({"error": "prompt too long (max 20000 chars)"})
-        task_id = task_mgr.submit(prompt, caller=caller, callback_url=callback_url or None)
-        return _json_dumps({"task_id": task_id, "status": "pending", "message": "Task submitted. Poll hermes_status."})
+        profile = profile.strip()
+        if profile and profile not in ALLOWED_PROFILES:
+            return _json_dumps({"error": f"unknown profile: {profile}. Allowed: {', '.join(ALLOWED_PROFILES)} (empty = default)"})
+        task_id = task_mgr.submit(prompt, caller=caller, callback_url=callback_url or None, profile=profile or None)
+        return _json_dumps({"task_id": task_id, "status": "pending", "message": "Task submitted. Poll hermes_status.", "profile": profile or "default"})
 
     @mcp.tool()
     def hermes_status(task_id: str) -> str:

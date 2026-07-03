@@ -36,6 +36,7 @@ Bridge gotchas:
 
 1. MCP requires `initialize` plus `notifications/initialized` before any `tools/call`. Calls are rejected without the handshake.
 2. Tool results can be double-encoded. The bridge returns `{"result": "<json string>"}` inside the parsed payload, so clients must decode the tool payload and then JSON-decode `payload["result"]` again when it is a string.
+3. A `failed` task with error `Task timed out after 600s` may still have done its work. The cap kills the agent process mid-run, after side effects (commits, pushes, installs) already landed, and `session_id` stays null so the task cannot resume or report. Never re-dispatch on the task record alone: oracle world-state first (git log, remote refs, filesystem, API), then dispatch only the delta that is actually missing.
 
 ## Evidence tiers (normative)
 

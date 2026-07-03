@@ -26,7 +26,7 @@ This plan defines **what to build**, **who builds it**, and **how we know it wor
 | Term | Meaning |
 |------|---------|
 | **Hermes** | Mac mini **executor** — runs the task. **Not** the verifier. |
-| **Satellite verifier** | MCP client (Obi / Codex / Pi) after dispatch — persona **`satellite-verifier.md`**. Verifies Hermes output; calls `hermes_respond`. |
+| **Satellite verifier** | MCP client (Codex / Claude Code / Pi / CI / other dispatcher) after dispatch — persona **`satellite-verifier.md`**. Verifies Hermes output; calls `hermes_respond`. |
 | **VERIFIER** | Local Pi tmux child (`just v`) — persona **`verifier.md`**. Unrelated to the satellite loop. |
 
 ---
@@ -72,7 +72,7 @@ The dispatch agent must:
 
 1. Write a **structured prompt** with acceptance criteria, paths, constraints, and explicit mention of expensive modes (MoA, delegation) when intended.
 2. **Not** edit files, run builds, or “help” locally while Hermes is executing the same task.
-3. On Hermes terminal status, the **dispatch client** (Obi, Codex, or Pi — not Hermes) switches to persona **`satellite-verifier`** before telling the user “done.”
+3. On Hermes terminal status, the **dispatch client** (Codex, Claude Code, Pi, CI, or another MCP-capable dispatcher — not Hermes) switches to persona **`satellite-verifier`** before telling the user “done.”
 
 Hermes retains full capability. Cost surprises from vague prompts are a **dispatch discipline** problem first; observability is the safety net second.
 

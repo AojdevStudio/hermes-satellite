@@ -185,7 +185,7 @@ The target flow adds a **return path** so verification is not “poll until done
         │  on terminal status (completed/failed)
         ▼
 [Callback / wake satellite verifier]
-  same MCP client that dispatched (Obi / Codex / Pi) notified
+  same MCP client that dispatched (Codex / Claude Code / Pi / CI / other dispatcher) notified
         │
         ▼
 [Satellite verifier — satellite-verifier.md]

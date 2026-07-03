@@ -193,6 +193,29 @@ python3 apps/hermes-async-bridge/hermes_async_bridge.py</pre>
     <h2 id="client">Client configuration</h2>
     <p>On each client machine, configure the MCP server by URL. Do not configure the bridge as a local command on the client; the client should connect to the shared Hermes host over the private network.</p>
 
+    <h2 id="one-line-install">One-line install</h2>
+    <p>Export <code class="ic">HERMES_MCP_TOKEN</code> before registration. Use the same token value that the bridge expects, but keep it out of committed files and shell history when possible.</p>
+
+    <div class="code">
+      <div class="code-bar"><span class="lang">bash</span><span class="copy" onclick="copyBlock(this)">Copy</span></div>
+      <pre>export HERMES_MCP_TOKEN=<span class="tok-c">"&lt;bridge-token&gt;"</span></pre>
+    </div>
+
+    <div class="code">
+      <div class="code-bar"><span class="lang">bash</span><span class="copy" onclick="copyBlock(this)">Copy</span></div>
+      <pre>claude mcp add --transport http hermes-async http://&lt;bridge-host&gt;:8081/mcp --header <span class="tok-c">"Authorization: Bearer ${HERMES_MCP_TOKEN}"</span></pre>
+    </div>
+
+    <div class="code">
+      <div class="code-bar"><span class="lang">bash</span><span class="copy" onclick="copyBlock(this)">Copy</span></div>
+      <pre>codex mcp add hermes-async --url http://&lt;bridge-host&gt;:8081/mcp --bearer-token-env-var HERMES_MCP_TOKEN</pre>
+    </div>
+
+    <p>After registration, restart or refresh MCP discovery in the harness. In Claude Code, expect tools such as <code class="ic">mcp__hermes-async__hermes_submit</code>. In Codex, confirm the server with <code class="ic">codex mcp list</code> before dispatching. In Hermes Agent, expect <code class="ic">mcp_hermes_async_*</code>.</p>
+
+    <h2 id="file-configuration">File configuration</h2>
+    <p>Use file configuration for clients that do not provide a one-line MCP registration command.</p>
+
     <div class="code">
       <div class="code-bar"><span class="lang">yaml</span><span class="copy" onclick="copyBlock(this)">Copy</span></div>
       <pre>mcp_servers:
@@ -231,6 +254,8 @@ bearer     MCP initialize  →  HTTP 200</pre>
     <div class="toc-h">On this page</div>
     <a href="#host" class="active">Bridge host setup</a>
     <a href="#client">Client configuration</a>
+    <a href="#one-line-install">One-line install</a>
+    <a href="#file-configuration">File configuration</a>
     <a href="#auth">Verify auth</a>
     <a href="#prefixes">Client tool prefixes</a>
   </nav>

@@ -1,0 +1,59 @@
+ARTIFACT .auto/research/artifacts/macmini-moa-export-20260630_081522_c6e18380.jsonl bytes 554816
+jsonl_rows 1
+session_keys ['actual_cost_usd', 'api_call_count', 'archived', 'billing_base_url', 'billing_mode', 'billing_provider', 'cache_read_tokens', 'cache_write_tokens', 'chat_id', 'chat_type', 'compression_failure_cooldown_until', 'compression_failure_error', 'cost_source', 'cost_status', 'cwd', 'end_reason', 'ended_at', 'estimated_cost_usd', 'git_branch', 'git_repo_root', 'handoff_error', 'handoff_platform', 'handoff_state', 'id', 'input_tokens', 'message_count', 'messages', 'model', 'model_config', 'output_tokens', 'parent_session_id', 'pricing_version', 'reasoning_tokens', 'rewind_count', 'session_key', 'source', 'started_at', 'system_prompt', 'thread_id', 'title', 'tool_call_count', 'user_id']
+session_id 20260630_081522_c6e18380 source discord billing_provider moa billing_base_url moa://local estimated_cost_usd 0.0 cost_source none
+message_count 111
+message_keys_union ['active', 'codex_message_items', 'codex_reasoning_items', 'compacted', 'content', 'finish_reason', 'id', 'observed', 'platform_message_id', 'reasoning', 'reasoning_content', 'reasoning_details', 'role', 'session_id', 'timestamp', 'token_count', 'tool_call_id', 'tool_calls', 'tool_name']
+roles {'user': 11, 'assistant': 48, 'tool': 51, 'session_meta': 1}
+tool_names_top [('terminal', 29), ('search_files', 5), ('execute_code', 4), ('delegate_task', 3), ('vision_analyze', 3), ('skill_view', 2), ('read_file', 2), ('memory', 2), ('web_extract', 1)]
+--- example assistant_tool_calls index 1
+{
+  "id": 5015,
+  "role": "assistant",
+  "tool_name": null,
+  "tool_call_id": null,
+  "timestamp": 1782825484.076342,
+  "content": "I'll actually look at both tools before giving you a recommendation — let me pull the real docs rather than guess at their architectures.",
+  "tool_calls": [
+    {
+      "id": "toolu_017zPoVKAmCPqpjh3zVXzKpK",
+      "call_id": "toolu_017zPoVKAmCPqpjh3zVXzKpK",
+      "response_item_id": "fc_toolu_017zPoVKAmCPqpjh3zVXzKpK",
+      "type": "function",
+      "function": {
+        "name": "web_extract",
+        "arguments": "{\"urls\": [\"https://deusdata.github.io/codebase-memory-mcp/\",\"https://github.com/colbymchenry/codegraph\"]}"
+      }
+    }
+  ]
+}
+--- example tool_result_delegate_task index 90
+{
+  "id": 5247,
+  "role": "tool",
+  "tool_name": "delegate_task",
+  "tool_call_id": "call_MYVSqS8yFTu4GU1zsxzUtdsU",
+  "timestamp": 1782828806.611179,
+  "content": "{\"status\": \"dispatched\", \"mode\": \"background\", \"count\": 1, \"delegation_id\": \"deleg_316d7fbc\", \"goals\": [\"Review a generated diagram PNG for readability/layout issues and provide concise actionable feedback only. Do not modify files.\"], \"note\": \"Subagent is running in the background. You and the user can keep working; its full result re-enters the conversation as a new message when it finishes. Do not wait or poll — just continue.\"}",
+  "tool_calls": null
+}
+--- example tool_result_terminal index 4
+{
+  "id": 5023,
+  "role": "tool",
+  "tool_name": "terminal",
+  "tool_call_id": "toolu_01Ki3k6713kNM7t6RzK7u7ui",
+  "timestamp": 1782825524.24961,
+  "content": "{\"output\": \"=== codegraph README (main) ===\\n<div align=\\\"center\\\">\\n\\n# CodeGraph\\n\\n## 🎉 1.0 Released!\\n\\nAlready installed? Run `codegraph upgrade` to update in place.\\n\\nFollow [@getcodegraph](https://x.com/getcodegraph) on X for updates.\\n\\n### Supercharge Claude Code, Cursor, Codex, OpenCode, Hermes Agent, Gemini, Antigravity, and Kiro with Semantic Code Intelligence\\n\\n**Surgical context · fewer tool calls · faster answers · 100% local**\\n\\n### [Documentation & Website →](https://colbymch",
+  "tool_calls": null
+}
+--- example final_assistant index 9
+{
+  "id": 5083,
+  "role": "assistant",
+  "tool_name": null,
+  "tool_call_id": null,
+  "timestamp": 1782826261.520459,
+  "content": "I now have both full READMEs — that's enough to give you a grounded comparison. No more fetching needed.\n\n## Bottom line\n\nFor a **growing/large codebase**, I'd trial **codebase-memory-mcp** — it's the one architecturally built to outscale what you're hitting. But don't rip out CodeGraph blindly; the two optimize for different things, and CodeGraph's agent-integration polish is real. Run them side by side on *your* repo for a week before committing.\n\n---\n\n## How they actually differ\n\n| Dimension ",
+  "tool_calls": null
+}

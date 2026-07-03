@@ -1,0 +1,231 @@
+--- bridge relevant source ---
+6:Cursor, etc.) can call. Unlike `hermes mcp serve` (which only bridges the
+14:  - Each task spawns `hermes chat -q <prompt> --source tool -Q` as a subprocess
+16:  - Follow-up messages use `hermes chat -q <prompt> --resume <session_id> --source tool -Q`
+32:    --port 8081 --host 0.0.0.0 --outputTransport streamableHttp
+46:import subprocess
+77:MAX_CONCURRENT_TASKS = 3  # Limit concurrent running tasks
+86:    session_id   TEXT,                          -- Hermes session ID (set when subprocess starts)
+95:    pid          INTEGER,                       -- Process ID of the Hermes subprocess
+104:    conn = sqlite3.connect(str(DB_PATH), timeout=10)
+133:    def __init__(self, max_concurrent: int = MAX_CONCURRENT_TASKS):
+137:        self._running: Dict[str, subprocess.Popen] = {}
+286:            # Kill the subprocess if running
+406:            # Start the subprocess
+407:            proc = subprocess.Popen(
+409:                stdout=subprocess.PIPE,
+410:                stderr=subprocess.PIPE,
+431:            # Wait for completion (with a generous timeout)
+433:                stdout, stderr = proc.communicate(timeout=600)
+434:            except subprocess.TimeoutExpired:
+522:def create_mcp_server() -> "FastMCP":
+525:        from mcp.server.fastmcp import FastMCP
+527:        logger.error("MCP SDK not available. Install with: pip install mcp")
+530:    mcp = FastMCP(
+555:    @mcp.tool()
+556:    def hermes_submit(prompt: str, caller: str = "") -> str:
+589:    @mcp.tool()
+590:    def hermes_status(task_id: str) -> str:
+614:    @mcp.tool()
+615:    def hermes_result(task_id: str) -> str:
+646:    @mcp.tool()
+647:    def hermes_respond(task_id: str, prompt: str) -> str:
+683:    @mcp.tool()
+684:    def hermes_cancel(task_id: str) -> str:
+687:        Sends SIGTERM to the Hermes subprocess. The task status will be
+706:    @mcp.tool()
+707:    def hermes_list(status: str = "", limit: int = 20) -> str:
+725:    @mcp.tool()
+726:    def hermes_sessions(limit: int = 10) -> str:
+746:    return mcp
+759:    mcp = create_mcp_server()
+760:    mcp.run(transport="stdio")
+--- launch plist ---
+{
+  "EnvironmentVariables" => {
+    "HERMES_HOME" => "/Users/aojdevstudio/.hermes"
+    "HOME" => "/Users/aojdevstudio"
+    "PATH" => "/Users/aojdevstudio/.volta/bin:/Users/aojdevstudio/.local/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+  }
+  "KeepAlive" => true
+  "Label" => "com.aojdevstudio.hermes-async-bridge"
+  "ProgramArguments" => [
+    0 => "/Users/aojdevstudio/.volta/bin/npx"
+    1 => "-y"
+    2 => "supergateway"
+    3 => "--stdio"
+    4 => "/Users/aojdevstudio/.hermes/scripts/hermes_async_bridge.py"
+    5 => "--port"
+    6 => "8081"
+    7 => "--host"
+    8 => "0.0.0.0"
+    9 => "--outputTransport"
+    10 => "streamableHttp"
+    11 => "--healthEndpoint"
+    12 => "/healthz"
+    13 => "--logLevel"
+    14 => "info"
+  ]
+  "RunAtLoad" => true
+  "StandardErrorPath" => "/Users/aojdevstudio/Library/Logs/hermes-async-bridge.err.log"
+  "StandardOutPath" => "/Users/aojdevstudio/Library/Logs/hermes-async-bridge.log"
+}
+--- health ---
+ok
+
+            # Build the command
+            # --yolo: skip approval prompts (headless operation)
+            # --pass-session-id: ensure session_id is in stderr for parsing
+            cmd = [HERMES_BIN, "chat", "-q", prompt, "-Q", "--yolo", "--pass-session-id", "--source", "tool"]
+            if session_id:
+                cmd.extend(["--resume", session_id])
+
+            logger.info("Running task %s: %s", task_id, " ".join(cmd[:6]) + " ...")
+
+            # Start the subprocess
+            proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                env={
+                    **os.environ,
+                    "HERMES_HOME": HERMES_HOME,
+                },
+            )
+
+            # Record the PID
+            conn = _get_db()
+            try:
+                conn.execute(
+                    "UPDATE tasks SET pid = ? WHERE task_id = ?",
+                    (proc.pid, task_id),
+                )
+                conn.commit()
+            finally:
+                conn.close()
+
+            with self._lock:
+                self._running[task_id] = proc
+
+            # Wait for completion (with a generous timeout)
+            try:
+                stdout, stderr = proc.communicate(timeout=600)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                stdout, stderr = proc.communicate()
+                self._set_failed(task_id, f"Task timed out after 600s", "")
+                return
+            finally:
+                with self._lock:
+                    self._running.pop(task_id, None)
+
+            stdout_text = stdout.decode("utf-8", errors="replace").strip()
+            stderr_text = stderr.decode("utf-8", errors="replace").strip()
+
+def create_mcp_server() -> "FastMCP":
+    """Create the async task bridge MCP server."""
+    try:
+        from mcp.server.fastmcp import FastMCP
+    except ImportError:
+        logger.error("MCP SDK not available. Install with: pip install mcp")
+        sys.exit(1)
+
+    mcp = FastMCP(
+        "hermes-async",
+        instructions=(
+            "Hermes Agent async task bridge. Submit tasks to Hermes Agent "
+            "(running on a remote Mac Mini) and get results back asynchronously. "
+            "Hermes has full tool access: terminal, file, web, search, skills, "
+            "memory, delegation, and more. "
+            "\n\n"
+            "Workflow:\n"
+            "1. Call hermes_submit with a prompt to start a task.\n"
+            "2. Poll hermes_status until status is 'completed' or 'failed'.\n"
+            "3. Call hermes_result to get the full response.\n"
+            "4. Call hermes_respond with the original task_id to send a follow-up "
+            "that resumes the same Hermes session.\n"
+            "\n"
+            "Tasks can take seconds to minutes depending on complexity. "
+            "Hermes runs with full homelab access — terminal, SSH, Docker, "
+            "file editing, web search, and all installed skills."
+        ),
+    )
+
+    task_mgr = TaskManager()
+
+    # -- hermes_submit -----------------------------------------------------
+
+    @mcp.tool()
+    def hermes_submit(prompt: str, caller: str = "") -> str:
+        """Submit a task to Hermes Agent. Returns a task_id immediately.
+
+        The task runs asynchronously with full tool access (terminal, file,
+        web, search, skills, memory, SSH, Docker, etc.). Poll hermes_status
+        to check completion, then hermes_result to get the response.
+
+        Args:
+            prompt: The task or question for Hermes. Be specific — Hermes
+                    will use its tools to complete it. Include any context
+                    Hermes needs (file paths, host names, service names).
+            caller: Optional identifier for who is calling (e.g. "claude-code",
+                    "codex"). Helps track task provenance.
+
+        Returns:
+    @mcp.tool()
+    def hermes_result(task_id: str) -> str:
+        """Get the full result of a completed (or failed) task.
+
+        Only returns the result if the task is completed or failed.
+        For running tasks, call hermes_status first.
+
+        Args:
+            task_id: The task_id from hermes_submit.
+
+        Returns:
+            JSON with the full Hermes response, session_id (for follow-ups),
+            and any error message.
+        """
+        if not task_id:
+            return json.dumps({"error": "task_id is required"})
+
+        result = task_mgr.get_result(task_id)
+        if not result:
+            return json.dumps({"error": f"Task not found: {task_id}"})
+
+        if result["status"] not in ("completed", "failed", "cancelled"):
+            return json.dumps({
+                "task_id": task_id,
+                "status": result["status"],
+                "message": "Task is still running. Call hermes_status to poll.",
+            })
+
+        return json.dumps(result)
+
+    # -- hermes_respond ----------------------------------------------------
+
+    @mcp.tool()
+    def hermes_respond(task_id: str, prompt: str) -> str:
+        """Send a follow-up message to a previous task's Hermes session.
+
+        This resumes the same Hermes conversation, so Hermes remembers the
+        full context of the previous exchange. The follow-up runs as a new
+        async task.
+
+        Args:
+            task_id: The task_id of a previous completed task (must have a
+                     valid session_id).
+            prompt: The follow-up question or instruction.
+
+        Returns:
+            JSON with a new task_id for the follow-up task.
+        """
+        if not task_id or not prompt or not prompt.strip():
+            return json.dumps({"error": "task_id and prompt are required"})
+
+        prompt = prompt.strip()
+        new_task_id = task_mgr.submit_followup(task_id, prompt)
+
+        if not new_task_id:
+            return json.dumps({
+                "error": f"Could not follow up. Task {task_id} not found or "
+(name: 'str | None' = None, instructions: 'str | None' = None, website_url: 'str | None' = None, icons: 'list[Icon] | None' = None, auth_server_provider: 'OAuthAuthorizationServerProvider[Any, Any, Any] | None' = None, token_verifier: 'TokenVerifier | None' = None, event_store: 'EventStore | None' = None, retry_interval: 'int | None' = None, *, tools: 'list[Tool] | None' = None, debug: 'bool' = False, log_level: "Literal['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL']" = 'INFO', host: 'str' = '127.0.0.1', port: 'int' = 8000, mount_path: 'str' = '/', sse_path: 'str' = '/sse', message_path: 'str' = '/messages/', streamable_http_path: 'str' = '/mcp', json_response: 'bool' = False, stateless_http: 'bool' = False, warn_on_duplicate_resources: 'bool' = True, warn_on_duplicate_tools: 'bool' = True, warn_on_duplicate_prompts: 'bool' = True, dependencies: 'Collection[str]' = (), lifespan: 'Callable[[FastMCP[LifespanResultT]], AbstractAsyncContextManager[LifespanResultT]] | None' = None, auth: 'AuthSettings | None' = None, transport_security: 'TransportSecuritySettings | None' = None)

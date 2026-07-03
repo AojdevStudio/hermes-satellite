@@ -44,7 +44,7 @@ mcp = FastMCP(
     token_verifier=HermesTokenVerifier(),
     auth=AuthSettings(...),
 )
-mcp.run(transport="streamable-http", host="100.66.249.14", port=8081)
+mcp.run(transport="streamable-http", host="<tailscale-ip>", port=8081)
 ```
 
 If using separate `fastmcp` 2.x:
@@ -77,13 +77,13 @@ class StaticBearerVerifier:
 mcp = FastMCP(
     "hermes-async",
     instructions=...,  # keep existing tool instructions
-    host="100.66.249.14",  # or 10.69.1.100; avoid 0.0.0.0 by default
+    host="<tailscale-ip>",  # or <lan-ip>; avoid 0.0.0.0 by default
     port=8081,
     streamable_http_path="/mcp",
     token_verifier=StaticBearerVerifier(os.environ["HERMES_ASYNC_BRIDGE_TOKEN"]),
     auth=AuthSettings(
         issuer_url="https://hermes.local",
-        resource_server_url="http://100.66.249.14:8081",
+        resource_server_url="http://<tailscale-ip>:8081",
         required_scopes=["hermes:submit"],
     ),
 )
@@ -97,7 +97,7 @@ This patch shape is intentionally smaller than adding OAuth/JWT first: it closes
 
 1. Keep the official SDK already installed (`mcp 1.26.0`) if it is otherwise compatible; its live `FastMCP` signature already has `token_verifier` and `auth`. Pin `mcp>=1.26,<2` or upgrade within v1.x only if the chosen verifier class requires it.
 2. Remove `supergateway`; run the existing bridge as a native Streamable HTTP MCP server.
-3. Bind only to Tailscale/LAN (`100.66.249.14` or `10.69.1.100`), not blind `0.0.0.0` unless firewall/reverse proxy is already enforced.
+3. Bind only to Tailscale/LAN (`<tailscale-ip>` or `<lan-ip>`), not blind `0.0.0.0` unless firewall/reverse proxy is already enforced.
 4. Add bearer token verification before enabling remote `hermes_submit`; this matters because bridge tasks run `hermes chat ... --yolo --source tool`.
 5. Add one unauthenticated `/healthz` only if needed; remember FastMCP custom routes may be intentionally unauthenticated.
 6. Keep TLS optional only on Tailscale/private LAN; require TLS at any public/Traefik edge.

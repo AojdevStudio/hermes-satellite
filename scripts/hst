@@ -18,6 +18,7 @@ Usage: hst <command> [args]
 
   tasks [-n N] [-s STATUS]   Recent tasks (id, status, profile, caller, age, prompt)
   task <id-prefix>           Everything about one task: row, runs, costs, events, result
+  watch [id-prefix]          Stream status/event changes until terminal (no id: whole bridge)
   events [-n N] [id-prefix]  Bridge MCP event log, optionally for one task
   costs [-n N]               Cost snapshots joined to tasks
   transcript <id-prefix>     Export the task's Hermes session transcript (JSONL) and print its path
@@ -76,6 +77,29 @@ case "$cmd" in
     q "SELECT COALESCE(result, '(error) '||COALESCE(error,'none')) FROM tasks WHERE task_id='$id';"
     fu=$(q "SELECT followups FROM tasks WHERE task_id='$id';")
     [ "$fu" != "[]" ] && { echo; echo "── followups ──"; echo "$fu"; }
+    ;;
+  watch)
+    # ponytail: 5s poll over sqlite, not a real event stream — the bridge has
+    # no pubsub; upgrade path is tailing mcp_events by rowid, which is what
+    # this does. Ctrl-C to stop; exits on terminal status when watching one task.
+    id=""; [ $# -ge 1 ] && id=$(resolve_task "$1")
+    last=$(q "SELECT COALESCE(MAX(id),0) FROM mcp_events;")
+    [ -n "$id" ] && echo "watching $id (poll 5s, Ctrl-C to stop)" || echo "watching all bridge events (poll 5s, Ctrl-C to stop)"
+    while :; do
+      where="id > $last"; [ -n "$id" ] && where="$where AND task_id='$id'"
+      sqlite3 -column "$DB" "SELECT datetime(ts,'unixepoch','localtime'), event_type,
+                                    COALESCE(substr(task_id,1,8),'-') FROM mcp_events WHERE $where ORDER BY id;"
+      last=$(q "SELECT COALESCE(MAX(id),$last) FROM mcp_events;")
+      if [ -n "$id" ]; then
+        st=$(q "SELECT status FROM tasks WHERE task_id='$id';")
+        case "$st" in completed|failed|cancelled)
+          echo "── terminal: $st ──"
+          q "SELECT substr(COALESCE(result, '(error) '||COALESCE(error,'')),1,2000) FROM tasks WHERE task_id='$id';"
+          exit 0;;
+        esac
+      fi
+      sleep 5
+    done
     ;;
   events)
     n=30; while getopts "n:" o; do case $o in n) n=$OPTARG;; *) exit 2;; esac; done

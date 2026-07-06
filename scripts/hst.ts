@@ -148,6 +148,51 @@ type Task = {
   started_at: number | null; completed_at: number | null; followups: string;
 };
 
+async function gists(tasks: Task[]): Promise<Record<string, string>> {
+  const cachePath = `${HERMES_HOME}/cache/hst_summaries.json`;
+  let cache: Record<string, string> = {};
+  try { cache = await Bun.file(cachePath).json(); } catch { /* empty cache */ }
+  const missing = tasks.filter((t) => !cache[t.task_id] && t.prompt);
+  if (!missing.length) return cache;
+  const env = await Bun.file(`${HERMES_HOME}/.env`).text().catch(() => "");
+  const line = env.split("\n").find((l) => l.startsWith("GROQ_API_KEY="));
+  const fileKey = line?.slice("GROQ_API_KEY=".length).trim().replace(/^(['"])(.*)\1$/, "$2");
+  const key = process.env.GROQ_API_KEY || fileKey;
+  if (!key) return cache;
+  try {
+    const body = {
+      model: "llama-3.1-8b-instant",
+      response_format: { type: "json_object" },
+      max_tokens: 600,
+      temperature: 0,
+      messages: [
+        {
+          role: "system",
+          content: "You compress AI-agent task prompts into terse gists. For each entry return a gist of AT MOST 8 words, imperative mood, no trailing period. Reply with ONLY a JSON object mapping each id to its gist.",
+        },
+        {
+          role: "user",
+          content: JSON.stringify(Object.fromEntries(missing.map((t) => [t.task_id, t.prompt.slice(0, 1200)]))),
+        },
+      ],
+    };
+    const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(4000),
+    });
+    const json = await res.json();
+    const out = JSON.parse(json.choices[0].message.content);
+    const ids = new Set(missing.map((t) => t.task_id));
+    for (const [id, gist] of Object.entries(out)) {
+      if (ids.has(id) && typeof gist === "string") cache[id] = gist;
+    }
+    await Bun.write(cachePath, JSON.stringify(cache, null, 1));
+  } catch { /* offline/non-fatal */ }
+  return cache;
+}
+
 function resolveTask(d: Database, prefix: string): Task {
   const rows = d.query<Task, [string]>(`SELECT * FROM tasks WHERE task_id LIKE ?1 || '%'`).all(prefix);
   if (rows.length === 1) return rows[0];
@@ -165,7 +210,7 @@ const flag = (name: string, dflt: string) => {
 };
 
 // ── commands ───────────────────────────────────────────────────────────────
-function cmdTasks() {
+async function cmdTasks() {
   const d = db();
   const n = Number(flag("-n", "15"));
   const status = flag("-s", "");
@@ -175,13 +220,14 @@ function cmdTasks() {
        ORDER BY created_at DESC LIMIT ${n}`,
     )
     .all();
+  const g = wantJson ? {} : await gists(rows);
   if (wantJson) return console.log(JSON.stringify(rows, null, 1));
   banner("tasks");
   if (!rows.length) return console.log(dim("  no tasks"));
   table(
     [
       { h: "id" }, { h: "status" }, { h: "profile" }, { h: "caller" },
-      { h: "age", right: true }, { h: "took", right: true }, { h: "prompt", flex: true },
+      { h: "age", right: true }, { h: "took", right: true }, { h: "gist", flex: true },
     ],
     rows.map((t) => [
       cyn(t.task_id.slice(0, 8)),
@@ -190,7 +236,7 @@ function cmdTasks() {
       t.caller || dim("-"),
       relTime(t.created_at),
       dur(t.started_at, t.completed_at),
-      t.prompt.replace(/\s+/g, " "),
+      g[t.task_id] ?? t.prompt.replace(/\s+/g, " "),
     ]),
   );
   const counts = d.query<{ status: string; n: number }, []>(
@@ -399,7 +445,7 @@ ${dim("--json on tasks/task/events/costs for scripting. NO_COLOR disables color.
 }
 
 switch (cmd) {
-  case "tasks": cmdTasks(); break;
+  case "tasks": await cmdTasks(); break;
   case "task": cmdTask(); break;
   case "events": cmdEvents(); break;
   case "costs": cmdCosts(); break;

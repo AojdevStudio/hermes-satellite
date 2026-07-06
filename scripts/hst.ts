@@ -154,14 +154,21 @@ async function gists(tasks: Task[]): Promise<Record<string, string>> {
   try { cache = await Bun.file(cachePath).json(); } catch { /* empty cache */ }
   const missing = tasks.filter((t) => !cache[t.task_id] && t.prompt);
   if (!missing.length) return cache;
-  const env = await Bun.file(`${HERMES_HOME}/.env`).text().catch(() => "");
-  const line = env.split("\n").find((l) => l.startsWith("GROQ_API_KEY="));
-  const fileKey = line?.slice("GROQ_API_KEY=".length).trim().replace(/^(['"])(.*)\1$/, "$2");
-  const key = process.env.GROQ_API_KEY || fileKey;
-  if (!key) return cache;
+  const envFile = await Bun.file(`${HERMES_HOME}/.env`).text().catch(() => "");
+  const envKey = (name: string) => {
+    if (process.env[name]) return process.env[name];
+    const line = envFile.split("\n").find((l) => l.startsWith(`${name}=`));
+    return line?.slice(name.length + 1).trim().replace(/^(['"])(.*)\1$/, "$2") || undefined;
+  };
+  // first provider with a key wins; groq is fastest, openrouter :free costs nothing
+  const provider = [
+    { base: "https://api.groq.com/openai/v1", model: "llama-3.1-8b-instant", key: envKey("GROQ_API_KEY") },
+    { base: "https://openrouter.ai/api/v1", model: "meta-llama/llama-3.3-70b-instruct:free", key: envKey("OPENROUTER_API_KEY") },
+  ].find((p) => p.key);
+  if (!provider) return cache;
   try {
     const body = {
-      model: "llama-3.1-8b-instant",
+      model: process.env.HST_GIST_MODEL || provider.model,
       response_format: { type: "json_object" },
       max_tokens: 600,
       temperature: 0,
@@ -176,9 +183,9 @@ async function gists(tasks: Task[]): Promise<Record<string, string>> {
         },
       ],
     };
-    const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    const res = await fetch(`${provider.base}/chat/completions`, {
       method: "POST",
-      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+      headers: { Authorization: `Bearer ${provider.key}`, "Content-Type": "application/json" },
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(4000),
     });

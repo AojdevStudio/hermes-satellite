@@ -129,6 +129,29 @@ Confidence is not a vibe - it's clamped in code by how strong the evidence actua
 
 Any task that writes files or executes code **requires T2**. A verify pass that stops at the result paragraph grades `PARTIAL` at best. Cost is part of the contract too: `hermes_result` and `hermes_task_cost` surface real spend, and mixture-of-agents rows with unreconciled local cost are reported as **unknown, never a free $0**.
 
+## Watching the bridge from the host: `hst`
+
+`scripts/hst.ts` is a single-file Bun CLI over the bridge's SQLite state - strictly read-only, zero npm dependencies. Symlink it onto your PATH as `hst` (and/or `hermes-satellite`):
+
+```text
+hst tasks [-n N] [-s STATUS]    recent tasks + status tally
+hst task <id-prefix>            one task in full: summary, runs, cost, timeline, result
+hst watch [id-prefix]           stream events; with an id, exits on terminal status
+hst events [-n N] [id-prefix]   bridge MCP event log
+hst costs [-n N]                cost snapshots per task, with caller
+hst transcript <id-prefix>      export session transcript (JSONL), print path
+hst logs [-f]                   bridge process logs
+hst health                      service, port, activity
+```
+
+`--json` on `tasks`/`task`/`events`/`costs` for scripting; the DB path is `$HERMES_ASYNC_BRIDGE_DB` or `~/.hermes/async_bridge.db`, and if it can't be opened the CLI exits with a one-line `hst: cannot open bridge db` error, not a stack trace.
+
+Two behaviors worth knowing:
+
+**Gists, not prompt dumps.** `hst tasks` shows each task as a short LLM-generated gist (eight words or fewer) instead of a truncated raw prompt. It uses Groq `llama-3.1-8b-instant` when `GROQ_API_KEY` is set (environment or `~/.hermes/.env`), else OpenRouter `meta-llama/llama-3.3-70b-instruct:free` when `OPENROUTER_API_KEY` is set; `HST_GIST_MODEL` overrides the model. Summaries are cached at `~/.hermes/cache/hst_summaries.json` - one batched call per new task, ever, so later runs are instant and offline. No key, a timeout, or a network failure falls back to the raw prompt silently, and `--json` output never makes a network call. One catch: OpenRouter `:free` endpoints require your account's privacy settings to permit them.
+
+**Honest cost rendering.** The same rule as the verification loop: `$0` on a subscription-billed session renders as `$0 (subscription)`; any other `$0` renders as `unknown` - never free. This applies to `hst costs` and the per-loop cost lines in `hst task`.
+
 ## What's in the repo
 
 | Path | What it is |
@@ -136,6 +159,7 @@ Any task that writes files or executes code **requires T2**. A verify pass that 
 | `apps/hermes-async-bridge/` | Native Python Streamable HTTP MCP bridge for Hermes Agent |
 | `apps/verifier/hermes/` | TypeScript client - dispatch, polling, transcript, decomposition |
 | `skills/hermes-dispatch/` | The dispatch + satellite-verify skill, plus the zero-token watcher |
+| `scripts/hst.ts` | `hst` - read-only host-side observability CLI: tasks, costs, events, transcripts, health |
 | `hermes-mcp.md` | Bridge architecture and operational state |
 | `hermes-polling.md` | The normative client polling contract |
 | `specs/hermes-satellite-verify.md` | Implementation plan and the evidence / cost model |
@@ -173,7 +197,8 @@ Built on:
 - 🔜 End-to-end callback / wake path from a real satellite verifier client
 - 🔜 `hermes_progress` - live sub-step visibility ("finished slice 1 of 3"), not just state transitions
 - 🔜 Token-derived principal mapping (beyond caller-string identity)
-- 🔜 Operator UI for the task queue, transcripts, costs, and verification state
+- ✅ `hst` - read-only host-side CLI for the task queue, costs, events, transcripts, and health
+- 🔜 Operator UI beyond the `hst` CLI - callbacks and verification state in one view
 
 See [`ROADMAP.md`](ROADMAP.md) for the full phased plan. Public operations guidance lives in [`docs/docs/safety/`](docs/docs/safety/) and [`docs/docs/operations/`](docs/docs/operations/); run `pnpm docs:validate` before submitting docs changes.
 

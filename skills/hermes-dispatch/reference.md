@@ -161,7 +161,7 @@ interface TaskCostSnapshot {
 }
 ```
 
-Obtain it from `hermes_result.cost`, from `hermes_task_cost(task_id)` (latest or full history including respond loops), or from the callback payload.
+Obtain it from `hermes_result.cost`, from `hermes_task_cost(task_id)` (latest or full history including respond loops), or from the callback payload. On the bridge host, `hst costs` and `hst task <id>` (`scripts/hst.ts`) render the same snapshots with the honesty rule pre-applied: `$0` with `billingMode=subscription_included` prints as `$0 (subscription)`; any other `$0` prints as `unknown`, never free.
 
 Report `### Cost` format:
 

@@ -9,7 +9,7 @@ This is the canonical repo copy intended to replace the prototype `~/.hermes/scr
 - Transport: official Python MCP SDK `FastMCP` with `transport="streamable-http"`.
 - Auth: SDK bearer token verifier via `token_verifier` + `AuthSettings`; set `HERMES_ASYNC_BRIDGE_TOKEN`.
 - Bind: explicit Tailscale/LAN host only. The script refuses `0.0.0.0` for HTTP.
-- SQLite state: defaults to `$HERMES_HOME/async_bridge.db`.
+- SQLite state: defaults to `$HERMES_HOME/async_bridge.db`. Inspect it read-only with the `hst` CLI (`scripts/hst.ts` at the repo root): tasks, per-task detail, costs, events, health.
 - Hermes evidence: reads `$HERMES_HOME/state.db` for transcript/cost metadata.
 
 ## Tools

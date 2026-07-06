@@ -39,6 +39,7 @@ Main-machine install handoff: [`specs/hermes-mcp-main-machine-install.md`](./spe
 | launchd wrapper | `<service-wrapper>` |
 | Python interpreter (runtime) | `~/.hermes/hermes-agent/venv/bin/python3` |
 | SQLite task DB | `~/.hermes/async_bridge.db` |
+| Host observability CLI | `scripts/hst.ts` in this repo (symlink onto PATH as `hst`) |
 | launchd service | `~/Library/LaunchAgents/com.example.hermes-async-bridge.plist` |
 | Service logs | `<supervisor-log-destination>` |
 | Service error log | `~/Library/Logs/hermes-async-bridge.err.log` |
@@ -242,6 +243,8 @@ The bridge gives remote callers “full Hermes Agent” access per submit. Phase
 
 **Cost telemetry target:** see [`specs/hermes-satellite-verify.md`](./specs/hermes-satellite-verify.md#cost-telemetry) — bridge reads session token counters from **`~/.hermes/state.db`** on terminal, persists to **`task_costs`**, returns `TaskCostSnapshot` on `hermes_result` and callbacks.
 
+**Host-side viewer:** the `hst` CLI (`scripts/hst.ts`) reads all of this from the bridge DB, strictly read-only. `hst costs` shows per-task snapshots with the caller and honest cost rendering — `$0` on a subscription-billed session prints as `$0 (subscription)`, any other `$0` prints as `unknown`, never free; `hst task <id>` applies the same rule to per-loop cost lines. `hst tasks` summarizes prompts as short LLM-generated gists (Groq via `GROQ_API_KEY`, else OpenRouter `:free` via `OPENROUTER_API_KEY`; cached in `~/.hermes/cache/hst_summaries.json`, silent fallback to the raw prompt when offline).
+
 Hermes config currently has MoA enabled (`moa.enabled: true`, OpenRouter Opus aggregator). That is fine when the **prompt explicitly asks for it**. The gap is **visibility**: without per-task cost capture, an expensive run looks the same as a cheap one until the bill arrives.
 
 ### Documentation quality
@@ -255,7 +258,7 @@ Hermes config currently has MoA enabled (`moa.enabled: true`, OpenRouter Opus ag
 - Live PONG task needs to prove `hermes_result.cost`, `hermes_transcript`, and `hermes_decompose`
 - Per-caller identity is still caller-string level, not per-token principal mapping
 - Completion callback endpoint/client listener still needs end-to-end proof
-- No UI
+- No UI (the `hst` CLI covers tasks/costs/events/health from the host terminal)
 
 ---
 
@@ -275,6 +278,8 @@ Hermes config currently has MoA enabled (`moa.enabled: true`, OpenRouter Opus ag
 | `mcp_events` | Raw initialize/tools/call/status/result activity |
 | `task_runs` | Subprocess command, model/provider, profile, toolsets, exit code |
 | `task_costs` | Prompt tokens, completion tokens, provider, model, estimated cost |
+
+All three exist and are readable on the host via `hst events`, `hst costs`, and the runs/cost/timeline sections of `hst task <id>`.
 
 ### 3. Completion callback + transcript
 

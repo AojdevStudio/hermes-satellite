@@ -110,7 +110,13 @@ When the `hermes_*` tools appear with your client's prefix (`mcp__hermes-async__
 
 ## The verification loop
 
-The `hermes-dispatch` skill is the operational heart. You are the **dispatcher and the satellite verifier, never the worker**:
+The `hermes-dispatch` skill is the operational heart. Install it into any skills-aware agent (Claude Code, Codex, Cursor, OpenCode, and the rest) straight from this repo:
+
+```bash
+npx skills add aojdevstudio/hermes-satellite
+```
+
+You are the **dispatcher and the satellite verifier, never the worker**:
 
 1. **`hermes_submit`** a scoped prompt carrying a `## Acceptance` block - one testable requirement per bullet. These become deterministic claims at verify time; without them the verifier is guessing.
 2. **Poll** the contract (30s initial, 120s interval, 600s hard cap) - or launch the watcher and keep working.

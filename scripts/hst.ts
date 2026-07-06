@@ -128,7 +128,10 @@ function kv(k: string, v: string) {
 // ── db ─────────────────────────────────────────────────────────────────────
 function db(): Database {
   try {
-    return new Database(DB_PATH, { readonly: true });
+    const d = new Database(DB_PATH, { readwrite: true });
+    d.exec("PRAGMA query_only = ON;");
+    d.query("SELECT 1").get();
+    return d;
   } catch {
     console.error(red(`hst: cannot open bridge db: ${DB_PATH}`));
     process.exit(1);

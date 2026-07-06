@@ -69,6 +69,10 @@ const trunc = (s: string, n: number) => {
 const num = (v: number | null | undefined) => (v == null ? "-" : v.toLocaleString("en-US"));
 const usd = (v: number | null | undefined) =>
   v == null || v === 0 ? dim("unknown") : `$${v.toFixed(4)}`;
+const cost = (r: { estimated_usd?: number | null; billing_mode?: string | null }) =>
+  r.billing_mode === "subscription_included" && !r.estimated_usd
+    ? grn("$0") + dim(" (subscription)")
+    : usd(r.estimated_usd);
 const relTime = (epoch: number | null) => {
   if (!epoch) return "-";
   const s = Math.max(0, Date.now() / 1000 - epoch);
@@ -233,7 +237,7 @@ function cmdTask() {
     section("cost");
     for (const cRow of costs)
       kv(`loop ${cRow.loop_index}`,
-        `${usd(cRow.estimated_cost_usd)} ${dim(`· in ${num(cRow.prompt_tokens)} · out ${num(cRow.completion_tokens)} · ${cRow.model ?? ""}`)}`);
+        `${cost(cRow)} ${dim(`· in ${num(cRow.prompt_tokens)} · out ${num(cRow.completion_tokens)} · ${cRow.model ?? ""}`)}`);
     console.log();
   }
   const events = d.query<any, [string]>(
@@ -291,13 +295,13 @@ function cmdCosts() {
   banner("costs");
   if (!rows.length) return console.log(dim("  no cost snapshots recorded"));
   table(
-    [{ h: "task" }, { h: "model", flex: true }, { h: "in", right: true }, { h: "out", right: true }, { h: "est cost", right: true }],
+    [{ h: "task" }, { h: "caller", flex: true }, { h: "model" }, { h: "in", right: true }, { h: "out", right: true }, { h: "est cost", right: true }],
     rows.map((r) => [
-      cyn(String(r.task_id).slice(0, 8)), r.model ?? dim("-"),
-      num(r.prompt_tokens), num(r.completion_tokens), usd(r.estimated_cost_usd),
+      cyn(String(r.task_id).slice(0, 8)), r.caller || dim("-"), r.model ?? dim("-"),
+      num(r.prompt_tokens), num(r.completion_tokens), cost(r),
     ]),
   );
-  console.log(`\n  ${dim("MoA/delegated sessions report $0 — treat as")} ${bold("unknown")}${dim(", never free.")}`);
+  console.log(`\n  ${dim("$0 outside a subscription is")} ${bold("unknown")}${dim(", never free.")}`);
 }
 
 async function cmdWatch() {

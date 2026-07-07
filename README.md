@@ -137,26 +137,55 @@ Any task that writes files or executes code **requires T2**. A verify pass that 
 
 ## Watching the bridge from the host: `hst`
 
-`scripts/hst.ts` is a single-file Bun CLI over the bridge's SQLite state - strictly read-only, zero npm dependencies. Symlink it onto your PATH as `hst` (and/or `hermes-satellite`):
+`scripts/hst.ts` is the host operator view for the async bridge. It is a single-file Bun CLI over `~/.hermes/async_bridge.db`, opened read-write only so WAL-mode SQLite is happy, then locked with `PRAGMA query_only=ON` so the CLI stays read-only. Symlink it onto your PATH as `hst` (and/or `hermes-satellite`) and install the companion skill where you dispatch from:
 
-```text
-hst tasks [-n N] [-s STATUS]    recent tasks + status tally
-hst task <id-prefix>            one task in full: summary, runs, cost, timeline, result
-hst watch [id-prefix]           stream events; with an id, exits on terminal status
-hst events [-n N] [id-prefix]   bridge MCP event log
-hst costs [-n N]                cost snapshots per task, with caller
-hst transcript <id-prefix>      export session transcript (JSONL), print path
-hst logs [-f]                   bridge process logs
-hst health                      service, port, activity
+```bash
+npx skills add aojdevstudio/hermes-satellite
 ```
 
-`--json` on `tasks`/`task`/`events`/`costs` for scripting; the DB path is `$HERMES_ASYNC_BRIDGE_DB` or `~/.hermes/async_bridge.db`, and if it can't be opened the CLI exits with a one-line `hst: cannot open bridge db` error, not a stack trace.
+First five minutes on the host:
+
+```text
+hst health                 service, port, and recent activity
+hst tasks -n 10            recent queue with status, caller, and gist
+hst task <id-prefix>       one task in full: runs, cost, timeline, result
+hst costs -n 10            per-task snapshots with caller and honest cost
+hst watch [id-prefix]      live event stream; exits on terminal status with an id
+```
+
+Other useful views: `hst events [-n N] [id-prefix]`, `hst transcript <id-prefix>`, and `hst logs [-f]`. `--json` works on `tasks`, `task`, `events`, and `costs`; JSON mode never calls a gist provider. If the bridge DB cannot be opened, `hst` exits with one line: `hst: cannot open bridge db`.
+
+Real host output, generated with `NO_COLOR=1 bun scripts/hst.ts tasks -n 4`:
+
+```text
+ HERMES SATELLITE  · tasks · ~/.hermes/async_bridge.db
+
+┌──────────┬─────────────┬─────────┬───────────────────────┬─────────────┬────────┬────────────────────────────────────┐
+│ id       │ status      │ profile │ caller                │         age │   took │ gist                               │
+├──────────┼─────────────┼─────────┼───────────────────────┼─────────────┼────────┼────────────────────────────────────┤
+│ 7cb13ab6 │ ✓ completed │ default │ obi-orinsync-db-fix   │ 12h 50m ago │ 7m 45s │ Fix OrinSync's unreachable Supaba… │
+│ 670a4da6 │ ✓ completed │ default │ obi-micstay-issue17   │ 17h 34m ago │ 8m 55s │ Build MicStay Settings window and… │
+│ c4a87ad6 │ ✓ completed │ default │ followup              │ 17h 44m ago │ 9m 52s │ Finish and land output-pin implem… │
+│ 6e4e4653 │ ✓ completed │ default │ obi-section-driver-65 │ 17h 46m ago │  2m 3s │ Classify hymns with semantic reas… │
+└──────────┴─────────────┴─────────┴───────────────────────┴─────────────┴────────┴────────────────────────────────────┘
+
+  ✓ completed 111  ·  ✗ failed 14
+```
 
 Two behaviors worth knowing:
 
-**Gists, not prompt dumps.** `hst tasks` shows each task as a short LLM-generated gist (eight words or fewer) instead of a truncated raw prompt. It uses Groq `llama-3.1-8b-instant` when `GROQ_API_KEY` is set (environment or `~/.hermes/.env`), else OpenRouter `meta-llama/llama-3.3-70b-instruct:free` when `OPENROUTER_API_KEY` is set; `HST_GIST_MODEL` overrides the model. Summaries are cached at `~/.hermes/cache/hst_summaries.json` - one batched call per new task, ever, so later runs are instant and offline. No key, a timeout, or a network failure falls back to the raw prompt silently, and `--json` output never makes a network call. One catch: OpenRouter `:free` endpoints require your account's privacy settings to permit them.
+**Gists, not prompt dumps.** `hst tasks` shows each task as a short LLM-generated gist, eight words or fewer. It uses Groq `llama-3.1-8b-instant` when `GROQ_API_KEY` is set in the environment or `~/.hermes/.env`, else OpenRouter `meta-llama/llama-3.3-70b-instruct:free` when `OPENROUTER_API_KEY` is set; `HST_GIST_MODEL` overrides the model. Summaries are cached at `~/.hermes/cache/hst_summaries.json` with one batched call per new task ever. No key, timeout, network failure, or OpenRouter 429 falls back to the raw prompt silently; a later run self-heals when the provider works. OpenRouter `:free` endpoints require account privacy settings that permit them.
 
 **Honest cost rendering.** The same rule as the verification loop: `$0` on a subscription-billed session renders as `$0 (subscription)`; any other `$0` renders as `unknown` - never free. This applies to `hst costs` and the per-loop cost lines in `hst task`.
+
+| Variable | Used for |
+|----------|----------|
+| `HERMES_ASYNC_BRIDGE_DB` | Override the bridge DB path; default is `~/.hermes/async_bridge.db`. |
+| `HERMES_HOME` | Override the Hermes home; controls the default DB, `.env`, and gist cache paths. |
+| `GROQ_API_KEY` | Preferred gist provider key, from env or `~/.hermes/.env`. |
+| `OPENROUTER_API_KEY` | Fallback gist provider key, from env or `~/.hermes/.env`. |
+| `HST_GIST_MODEL` | Override the selected gist model. |
+| `NO_COLOR` | Disable ANSI color for docs, logs, and scripts. |
 
 ## What's in the repo
 

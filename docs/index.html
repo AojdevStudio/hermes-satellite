@@ -176,6 +176,7 @@
   <div class="navlinks">
     <a href="https://aojdevstudio.me/blog/why-use-mcp/" target="_blank" rel="noopener noreferrer">Why Use MCP?</a>
     <a href="https://aojdevstudio.me/blog/wtf-is-loop-engineering/" target="_blank" rel="noopener noreferrer">WTF is Loop Engineering?</a>
+    <a href="#hst">hst CLI</a>
     <a href="#mcp">MCP</a>
     <a href="./docs/">Docs</a>
     <a href="https://github.com/AojdevStudio/hermes-satellite" style="display:inline-flex;align-items:center;gap:7px"><svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0 0 16 8c0-4.42-3.58-8-8-8Z"/></svg>GitHub</a>
@@ -269,8 +270,35 @@
   </div>
 </div></section>
 
+<section class="band" id="hst"><div class="wrap">
+  <div class="seclabel"><span class="seclabel-box"><span class="num">03</span><h2 class="txt">Operator confidence.</h2></span><span class="rule"></span></div>
+  <div class="switch">
+    <div class="termpane" style="margin-top:0">
+      <div class="termbar"><span class="tl" style="background:var(--tl-red)"></span><span class="tl" style="background:var(--tl-yellow)"></span><span class="tl" style="background:var(--tl-green)"></span><span style="font-family:var(--font-mono);font-size:12px;color:var(--term-mute);margin-left:8px">hst</span></div>
+      <div class="termbody">
+        <div style="color:var(--term-fg)"><span style="color:var(--term-green)">&gt;</span> hst tasks -n 4</div>
+        <div style="color:var(--term-green)">queue visible · caller visible · gist visible</div>
+        <div style="color:var(--term-fg)"><span style="color:var(--term-green)">&gt;</span> hst costs -n 4</div>
+        <div style="color:var(--term-blue)">$0 (subscription) or unknown, never free</div>
+        <div style="color:var(--term-fg)"><span style="color:var(--term-green)">&gt;</span> hst transcript 7cb13ab6</div>
+        <div style="color:var(--term-green)">/tmp/hermes-async-bridge-transcripts/...</div>
+      </div>
+    </div>
+    <div>
+      <div class="kicker">Host-side observability</div>
+      <h2>Watch the queue without trusting the queue.</h2>
+      <p class="body" style="margin-bottom:24px">The <code>hst</code> CLI is one Bun file with zero npm dependencies over the bridge SQLite state. Operators can inspect live tasks, see caller-aware cost snapshots, and export any transcript from the host without adding a service.</p>
+      <div class="claims">
+        <div class="claim"><span class="ci">01</span><span class="ct">Task state, caller, and short gists are visible at a glance.</span><span class="badge b-ok"><span class="d"></span>visible</span></div>
+        <div class="claim"><span class="ci">02</span><span class="ct">Cost output never turns unknown spend into a fake $0.</span><span class="badge b-warn"><span class="d"></span>honest</span></div>
+        <div class="claim"><span class="ci">03</span><span class="ct">Transcript export keeps verification tied to evidence.</span><span class="badge b-ok"><span class="d"></span>evidence</span></div>
+      </div>
+    </div>
+  </div>
+</div></section>
+
 <section class="band" id="mcp"><div class="wrap">
-  <div class="seclabel"><span class="seclabel-box"><span class="num">03</span><h2 class="txt">Operate the bridge.</h2></span><span class="rule"></span></div>
+  <div class="seclabel"><span class="seclabel-box"><span class="num">04</span><h2 class="txt">Operate the bridge.</h2></span><span class="rule"></span></div>
   <div class="switch">
     <div>
       <div class="kicker">Authenticated MCP switchboard</div>
@@ -300,7 +328,7 @@
     <span class="wm" style="font-size:19px">AOJDevStudio</span>
   </div>
   <div class="cols">
-    <div class="col"><b>Product</b><a href="#why">Dispatch</a><a href="#verify">Verification</a><a href="./docs/walkthrough/">Walkthrough</a></div>
+    <div class="col"><b>Product</b><a href="#why">Dispatch</a><a href="#verify">Verification</a><a href="#hst">hst CLI</a><a href="./docs/walkthrough/">Walkthrough</a></div>
     <div class="col"><b>MCP</b><a href="./docs/bridge/">Bridge</a><a href="./docs/clients/">Clients</a><a href="./docs/safety/">Safety</a></div>
     <div class="col"><b>Project</b><a href="./docs/">Docs</a><a href="https://github.com/AojdevStudio/hermes-satellite">GitHub</a><a href="https://github.com/AojdevStudio/hermes-satellite/blob/main/ROADMAP.md">Roadmap</a></div>
   </div>

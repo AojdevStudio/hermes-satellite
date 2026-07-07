@@ -36,7 +36,6 @@
 
   /* ---- hero ---- */
   .hero { position: relative; background: transparent; border-bottom: 1px solid var(--hairline); }
-  .redrule { position: absolute; left: 40px; top: 0; bottom: 0; width: 2px; background: var(--red); }
   .hero .wrap { display: grid; grid-template-columns: 1.05fr .95fr; gap: 48px; padding-top: 60px; padding-bottom: 60px; align-items: center; }
   .eyebrow { font-family: var(--font-mono); font-size: 12px; letter-spacing: .16em; text-transform: uppercase; color: var(--ink-mute); }
   h1.display { font-family: var(--font-display); font-weight: 500; font-size: 76px; line-height: .96; letter-spacing: -.02em; color: var(--ink-max); margin: 22px 0 0; }
@@ -152,7 +151,6 @@
   }
   @media (max-width: 760px) {
     .wrap { padding: 0 20px; }
-    .redrule { left: 20px; }
     nav.top .wrap { height: auto; flex-wrap: wrap; padding-top: 10px; padding-bottom: 10px; row-gap: 6px; }
     .navlinks { flex-wrap: wrap; gap: 14px; }
     .tristrip .wrap, .cards3 { grid-template-columns: 1fr; }
@@ -191,7 +189,6 @@
 </div>
 
 <header class="hero">
-  <div class="redrule"></div>
   <div class="wrap">
     <div>
       <div class="eyebrow">Remote execution · satellite verification</div>

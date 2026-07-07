@@ -27,6 +27,8 @@ Keep the dispatched task small and scoped; large multi-part prompts hit the 600s
 - Require Hermes to return proof artifacts inline (command output, file excerpts, paths), not just a summary.
 - If you intend an expensive mode (MoA, delegation), say so in the acceptance block so cost cross-checks work.
 
+Before `hermes_submit`, pipe the draft prompt through `tools/scope_check.py`. `CAUTION` means tighten the scope; `SPLIT` (exit 1) means restructure as a `## Delegation plan` of parallel children or make it a smaller task. The 600s cap is deliberate, and the checker thresholds come from real bridge history, not vibes.
+
 Call `hermes_submit(prompt, caller)`. Save `task_id` + `submit_time`. One `task_id` per poll chain unless the user explicitly asked for parallel tasks.
 
 ### Swarm dispatch (delegation-aware)

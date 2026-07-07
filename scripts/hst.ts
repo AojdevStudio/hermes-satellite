@@ -4,7 +4,8 @@
  *
  * Single file, zero npm deps: bun:sqlite for the DB, hand-rolled
  * ccusage-style renderer (box tables, ANSI-aware widths, responsive
- * columns). Read-only over the async bridge's SQLite state.
+ * columns). Opens SQLite read-write only so WAL files are visible, then
+ * locks the handle with PRAGMA query_only=ON for strictly read-only behavior.
  *
  * Install: symlink into a PATH dir as `hst` and/or `hermes-satellite`.
  */
@@ -69,10 +70,11 @@ const trunc = (s: string, n: number) => {
 const num = (v: number | null | undefined) => (v == null ? "-" : v.toLocaleString("en-US"));
 const usd = (v: number | null | undefined) =>
   v == null || v === 0 ? dim("unknown") : `$${v.toFixed(4)}`;
-const cost = (r: { estimated_usd?: number | null; billing_mode?: string | null }) =>
-  r.billing_mode === "subscription_included" && !r.estimated_usd
-    ? grn("$0") + dim(" (subscription)")
-    : usd(r.estimated_usd);
+const debugFailure = (context: string, err: unknown) => {
+  if (!process.env.HST_DEBUG) return;
+  const reason = err instanceof Error ? err.message : String(err);
+  console.error(dim(`hst debug: ${context}: ${reason}`));
+};
 const relTime = (epoch: number | null) => {
   if (!epoch) return "-";
   const s = Math.max(0, Date.now() / 1000 - epoch);
@@ -147,14 +149,50 @@ type Task = {
   caller: string | null; profile: string | null; created_at: number;
   started_at: number | null; completed_at: number | null; followups: string;
 };
+type CostRow = {
+  estimated_usd: number | null;
+  billing_mode: string | null;
+  cost_unreconciled: number | boolean | null;
+};
+type TaskCost = CostRow & {
+  id: number;
+  task_id: string;
+  session_id: string;
+  loop_index: number;
+  provider: string | null;
+  model: string | null;
+  prompt_tokens: number | null;
+  completion_tokens: number | null;
+  cache_read_tokens: number | null;
+  cache_write_tokens: number | null;
+  reasoning_tokens: number | null;
+  total_tokens: number | null;
+  cost_source: string | null;
+  billing_provider: string | null;
+  pricing_version: string | null;
+  expensive_tools_used: string;
+  captured_at: number;
+  snapshot_json: string;
+};
+
+const cost = (r: CostRow) => {
+  if (r.cost_unreconciled) return red("unreconciled");
+  return r.billing_mode === "subscription_included" && !r.estimated_usd
+    ? grn("$0") + dim(" (subscription)")
+    : usd(r.estimated_usd);
+};
 
 async function gists(tasks: Task[]): Promise<Record<string, string>> {
+  if (process.env.HST_NO_GIST === "1") return {};
   const cachePath = `${HERMES_HOME}/cache/hst_summaries.json`;
   let cache: Record<string, string> = {};
-  try { cache = await Bun.file(cachePath).json(); } catch { /* empty cache */ }
+  try { cache = await Bun.file(cachePath).json(); } catch (err) { debugFailure("gist cache read failed", err); }
   const missing = tasks.filter((t) => !cache[t.task_id] && t.prompt);
   if (!missing.length) return cache;
-  const envFile = await Bun.file(`${HERMES_HOME}/.env`).text().catch(() => "");
+  const envFile = await Bun.file(`${HERMES_HOME}/.env`).text().catch((err) => {
+    debugFailure("gist env read failed", err);
+    return "";
+  });
   const envKey = (name: string) => {
     if (process.env[name]) return process.env[name];
     const line = envFile.split("\n").find((l) => l.startsWith(`${name}=`));
@@ -189,6 +227,7 @@ async function gists(tasks: Task[]): Promise<Record<string, string>> {
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(4000),
     });
+    if (!res.ok) throw new Error(`gist request failed: HTTP ${res.status}`);
     const json = await res.json();
     const out = JSON.parse(json.choices[0].message.content);
     const ids = new Set(missing.map((t) => t.task_id));
@@ -196,7 +235,7 @@ async function gists(tasks: Task[]): Promise<Record<string, string>> {
       if (ids.has(id) && typeof gist === "string") cache[id] = gist;
     }
     await Bun.write(cachePath, JSON.stringify(cache, null, 1));
-  } catch { /* offline/non-fatal */ }
+  } catch (err) { debugFailure("gist request failed", err); }
   return cache;
 }
 
@@ -227,10 +266,11 @@ async function cmdTasks() {
        ORDER BY created_at DESC LIMIT ${n}`,
     )
     .all();
-  const g = wantJson ? {} : await gists(rows);
   if (wantJson) return console.log(JSON.stringify(rows, null, 1));
+  const g = await gists(rows);
   banner("tasks");
   if (!rows.length) return console.log(dim("  no tasks"));
+  // Raw prompt fallback is safe here because the table flex column truncates display width.
   table(
     [
       { h: "id" }, { h: "status" }, { h: "profile" }, { h: "caller" },
@@ -284,7 +324,7 @@ function cmdTask() {
       ]),
     );
   }
-  const costs = d.query<any, [string]>(
+  const costs = d.query<TaskCost, [string]>(
     `SELECT * FROM task_costs WHERE task_id=?1`).all(t.task_id);
   if (costs.length) {
     section("cost");
@@ -338,12 +378,12 @@ function cmdEvents() {
 function cmdCosts() {
   const d = db();
   const n = Number(flag("-n", "15"));
-  let rows: any[] = [];
+  let rows: (TaskCost & { caller: string | null })[] = [];
   try {
-    rows = d.query<any, []>(
+    rows = d.query<TaskCost & { caller: string | null }, []>(
       `SELECT c.*, t.caller FROM task_costs c LEFT JOIN tasks t ON t.task_id=c.task_id
        ORDER BY c.id DESC LIMIT ${n}`).all();
-  } catch { /* table may not exist on older bridges */ }
+  } catch (err) { debugFailure("cost snapshots query failed", err); }
   if (wantJson) return console.log(JSON.stringify(rows, null, 1));
   banner("costs");
   if (!rows.length) return console.log(dim("  no cost snapshots recorded"));
@@ -354,7 +394,7 @@ function cmdCosts() {
       num(r.prompt_tokens), num(r.completion_tokens), cost(r),
     ]),
   );
-  console.log(`\n  ${dim("$0 outside a subscription is")} ${bold("unknown")}${dim(", never free.")}`);
+  console.log(`\n  ${dim("MoA/delegated $0 is")} ${bold("unreconciled")}${dim(" — unknown, never free. $0 (subscription) only when billing mode proves it.")}`);
 }
 
 async function cmdWatch() {
@@ -409,11 +449,17 @@ async function cmdLogs() {
 
 async function cmdHealth() {
   banner("health");
-  const svc = await Bun.$`launchctl list`.text().catch(() => "");
+  const svc = await Bun.$`launchctl list`.text().catch((err) => {
+    debugFailure("launchctl check failed", err);
+    return "";
+  });
   const line = svc.split("\n").find((l) => l.includes("hermes-async-bridge"));
   section("service");
   kv("launchd", line ? grn(line.trim()) : red("not loaded"));
-  const lsof = await Bun.$`lsof -nP -iTCP:${PORT} -sTCP:LISTEN`.text().catch(() => "");
+  const lsof = await Bun.$`lsof -nP -iTCP:${PORT} -sTCP:LISTEN`.text().catch((err) => {
+    debugFailure("port check failed", err);
+    return "";
+  });
   const bound = lsof.trim().split("\n").slice(-1)[0] ?? "";
   kv("port", bound ? grn(bound.replace(/\s+/g, " ")) : red(`nothing on :${PORT}`));
   kv("db", DB_PATH.replace(HOME, "~"));

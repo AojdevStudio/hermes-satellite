@@ -49,10 +49,6 @@ def verdict(score):
     return "SPLIT, restructure as a Delegation plan or smaller tasks", 1
 
 
-def quote_ident(name):
-    return '"' + name.replace('"', '""') + '"'
-
-
 def bridge_context(length):
     try:
         path = os.environ.get("HERMES_ASYNC_BRIDGE_DB") or os.path.expanduser("~/.hermes/async_bridge.db")
@@ -62,28 +58,19 @@ def bridge_context(length):
         con = sqlite3.connect(uri, uri=True, timeout=0.2)
         con.row_factory = sqlite3.Row
         low, high = int(length * 0.75), int(length * 1.25)
-        for row in con.execute("select name from sqlite_master where type='table'"):
-            table = row["name"]
-            qtable = quote_ident(table)
-            cols = [c["name"] for c in con.execute(f"pragma table_info({qtable})")]
-            prompt_col = next((c for c in ("prompt", "original_prompt", "input", "request") if c in cols), None)
-            if not prompt_col:
-                continue
-            status_col = next((c for c in ("status", "state") if c in cols), None)
-            checks = []
-            if status_col:
-                checks.append(f"lower(coalesce({quote_ident(status_col)}, '')) like '%timeout%'")
-            checks.extend(f"lower(coalesce({quote_ident(c)}, '')) like '%timeout%'" for c in ("error", "result", "message") if c in cols)
-            timeout_expr = " or ".join(checks) or "0"
-            sql = (
-                f"select count(*) as n, sum(case when {timeout_expr} then 1 else 0 end) as t "
-                f"from {qtable} where length(coalesce({quote_ident(prompt_col)}, '')) between ? and ?"
-            )
-            result = con.execute(sql, (low, high)).fetchone()
-            n = int(result["n"] or 0)
-            if n:
-                rate = (float(result["t"] or 0) * 100.0) / n
-                return f"tasks within ±25% of this length: {n}, timeout rate {rate:.1f}%"
+        result = con.execute(
+            """
+            SELECT COUNT(*) n,
+                   SUM(CASE WHEN status='failed' AND COALESCE(error,'') LIKE '%timed out%' THEN 1 ELSE 0 END) t
+            FROM tasks
+            WHERE LENGTH(COALESCE(prompt,'')) BETWEEN ? AND ?
+            """,
+            (low, high),
+        ).fetchone()
+        n = int(result["n"] or 0)
+        if n:
+            rate = (float(result["t"] or 0) * 100.0) / n
+            return f"tasks within ±25% of this length: {n}, timeout rate {rate:.1f}%"
     except Exception:
         return None
     return None

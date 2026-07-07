@@ -15,6 +15,7 @@ typecheck:
 # Compile and run the Hermes decomposition/unit tests
 test:
     cd apps/verifier && pnpm test
+    bun test scripts/hst.test.ts
 
 # Check the native Python bridge can be parsed and FastMCP can be instantiated
 bridge-check:

@@ -23,6 +23,7 @@ Icon?
 *.swp
 *.swo
 *~
+*.bak-*
 .vscode/
 .idea/
 

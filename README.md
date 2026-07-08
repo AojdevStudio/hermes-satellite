@@ -110,7 +110,13 @@ When the `hermes_*` tools appear with your client's prefix (`mcp__hermes-async__
 
 ## The verification loop
 
-The `hermes-dispatch` skill is the operational heart. You are the **dispatcher and the satellite verifier, never the worker**:
+The `hermes-dispatch` skill is the operational heart. Install it into any skills-aware agent (Claude Code, Codex, Cursor, OpenCode, and the rest) straight from this repo:
+
+```bash
+npx skills add aojdevstudio/hermes-satellite
+```
+
+You are the **dispatcher and the satellite verifier, never the worker**:
 
 1. **`hermes_submit`** a scoped prompt carrying a `## Acceptance` block - one testable requirement per bullet. These become deterministic claims at verify time; without them the verifier is guessing.
 2. **Poll** the contract (30s initial, 120s interval, 600s hard cap) - or launch the watcher and keep working.
@@ -129,6 +135,58 @@ Confidence is not a vibe - it's clamped in code by how strong the evidence actua
 
 Any task that writes files or executes code **requires T2**. A verify pass that stops at the result paragraph grades `PARTIAL` at best. Cost is part of the contract too: `hermes_result` and `hermes_task_cost` surface real spend, and mixture-of-agents rows with unreconciled local cost are reported as **unknown, never a free $0**.
 
+## Watching the bridge from the host: `hst`
+
+`scripts/hst.ts` is the host operator view for the async bridge. It is a single-file Bun CLI over `~/.hermes/async_bridge.db`, opened read-write only so WAL-mode SQLite is happy, then locked with `PRAGMA query_only=ON` so the CLI stays read-only. Symlink it onto your PATH as `hst` (and/or `hermes-satellite`) and install the companion skill where you dispatch from:
+
+```bash
+npx skills add aojdevstudio/hermes-satellite
+```
+
+First five minutes on the host:
+
+```text
+hst health                 service, port, and recent activity
+hst tasks -n 10            recent queue with status, caller, and gist
+hst task <id-prefix>       one task in full: runs, cost, timeline, result
+hst costs -n 10            per-task snapshots with caller and honest cost
+hst watch [id-prefix]      live event stream; exits on terminal status with an id
+```
+
+Other useful views: `hst events [-n N] [id-prefix]`, `hst transcript <id-prefix>`, and `hst logs [-f]`. `--json` works on `tasks`, `task`, `events`, and `costs`; JSON mode never calls a gist provider. If the bridge DB cannot be opened, `hst` exits with one line: `hst: cannot open bridge db`.
+
+Real host output, generated with `NO_COLOR=1 bun scripts/hst.ts tasks -n 4`:
+
+```text
+ HERMES SATELLITE  · tasks · ~/.hermes/async_bridge.db
+
+┌──────────┬─────────────┬─────────┬───────────────────────┬─────────────┬────────┬────────────────────────────────────┐
+│ id       │ status      │ profile │ caller                │         age │   took │ gist                               │
+├──────────┼─────────────┼─────────┼───────────────────────┼─────────────┼────────┼────────────────────────────────────┤
+│ 7cb13ab6 │ ✓ completed │ default │ obi-orinsync-db-fix   │ 12h 50m ago │ 7m 45s │ Fix OrinSync's unreachable Supaba… │
+│ 670a4da6 │ ✓ completed │ default │ obi-micstay-issue17   │ 17h 34m ago │ 8m 55s │ Build MicStay Settings window and… │
+│ c4a87ad6 │ ✓ completed │ default │ followup              │ 17h 44m ago │ 9m 52s │ Finish and land output-pin implem… │
+│ 6e4e4653 │ ✓ completed │ default │ obi-section-driver-65 │ 17h 46m ago │  2m 3s │ Classify hymns with semantic reas… │
+└──────────┴─────────────┴─────────┴───────────────────────┴─────────────┴────────┴────────────────────────────────────┘
+
+  ✓ completed 111  ·  ✗ failed 14
+```
+
+Two behaviors worth knowing:
+
+**Gists, not prompt dumps.** `hst tasks` shows each task as a short LLM-generated gist, eight words or fewer. It uses Groq `llama-3.1-8b-instant` when `GROQ_API_KEY` is set in the environment or `~/.hermes/.env`, else OpenRouter `meta-llama/llama-3.3-70b-instruct:free` when `OPENROUTER_API_KEY` is set; `HST_GIST_MODEL` overrides the model. Summaries are cached at `~/.hermes/cache/hst_summaries.json` with one batched call per new task ever. No key, timeout, network failure, or OpenRouter 429 falls back to the raw prompt silently; a later run self-heals when the provider works. OpenRouter `:free` endpoints require account privacy settings that permit them.
+
+**Honest cost rendering.** The same rule as the verification loop: `$0` on a subscription-billed session renders as `$0 (subscription)`; any other `$0` renders as `unknown` - never free. This applies to `hst costs` and the per-loop cost lines in `hst task`.
+
+| Variable | Used for |
+|----------|----------|
+| `HERMES_ASYNC_BRIDGE_DB` | Override the bridge DB path; default is `~/.hermes/async_bridge.db`. |
+| `HERMES_HOME` | Override the Hermes home; controls the default DB, `.env`, and gist cache paths. |
+| `GROQ_API_KEY` | Preferred gist provider key, from env or `~/.hermes/.env`. |
+| `OPENROUTER_API_KEY` | Fallback gist provider key, from env or `~/.hermes/.env`. |
+| `HST_GIST_MODEL` | Override the selected gist model. |
+| `NO_COLOR` | Disable ANSI color for docs, logs, and scripts. |
+
 ## What's in the repo
 
 | Path | What it is |
@@ -136,6 +194,7 @@ Any task that writes files or executes code **requires T2**. A verify pass that 
 | `apps/hermes-async-bridge/` | Native Python Streamable HTTP MCP bridge for Hermes Agent |
 | `apps/verifier/hermes/` | TypeScript client - dispatch, polling, transcript, decomposition |
 | `skills/hermes-dispatch/` | The dispatch + satellite-verify skill, plus the zero-token watcher |
+| `scripts/hst.ts` | `hst` - read-only host-side observability CLI: tasks, costs, events, transcripts, health |
 | `hermes-mcp.md` | Bridge architecture and operational state |
 | `hermes-polling.md` | The normative client polling contract |
 | `specs/hermes-satellite-verify.md` | Implementation plan and the evidence / cost model |
@@ -173,7 +232,8 @@ Built on:
 - 🔜 End-to-end callback / wake path from a real satellite verifier client
 - 🔜 `hermes_progress` - live sub-step visibility ("finished slice 1 of 3"), not just state transitions
 - 🔜 Token-derived principal mapping (beyond caller-string identity)
-- 🔜 Operator UI for the task queue, transcripts, costs, and verification state
+- ✅ `hst` - read-only host-side CLI for the task queue, costs, events, transcripts, and health
+- 🔜 Operator UI beyond the `hst` CLI - callbacks and verification state in one view
 
 See [`ROADMAP.md`](ROADMAP.md) for the full phased plan. Public operations guidance lives in [`docs/docs/safety/`](docs/docs/safety/) and [`docs/docs/operations/`](docs/docs/operations/); run `pnpm docs:validate` before submitting docs changes.
 

@@ -53,6 +53,7 @@ window.DOCS_INDEX = [
   { title: 'Restart and post-change verification', section: 'Production operations', href: './operations/#restart' },
   { title: 'Task lifecycle', section: 'Production operations', href: './operations/#lifecycle' },
   { title: 'Observability concepts', section: 'Production operations', href: './operations/#observability' },
+  { title: 'The hst CLI', section: 'Production operations', href: './operations/#hst' },
   { title: 'Troubleshooting matrix', section: 'Production operations', href: './operations/#troubleshooting' },
   { title: 'Authenticated bridge', section: 'MCP', href: './bridge/' },
   { title: 'Native HTTP runtime', section: 'Authenticated bridge', href: './bridge/#runtime' },

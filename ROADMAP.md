@@ -1,6 +1,6 @@
 # Hermes Satellite Roadmap
 
-Last updated: 2026-07-02
+Last updated: 2026-07-06
 
 ## Product direction
 
@@ -44,7 +44,7 @@ The target is not just remote execution. The target is a closed loop:
 - Per-caller identity is still mostly caller-string level; token-derived principal mapping is not complete.
 - Cost telemetry exists, but live acceptance tests need to prove `hermes_result.cost`, `hermes_transcript`, `hermes_decompose`, and `hermes_task_cost` together on authenticated tasks.
 - Satellite verifier enforcement parity with the local Pi verifier is not fully locked down in code.
-- There is no operator UI for task queue, callbacks, transcripts, costs, or verification state.
+- The `hst` CLI (`scripts/hst.ts`) now covers task queue, per-task detail, costs, events, transcript export, and service health from the host terminal; callback health and verification state still have no operator view, and there is no UI.
 
 ## Roadmap
 
@@ -194,13 +194,15 @@ Validation:
 
 Goal: make the system easy to inspect and operate while AFK.
 
+Status: largely delivered by the `hst` CLI (`scripts/hst.ts`); callback health, verifier results, and the Discord/mobile summary remain.
+
 Deliverables:
 
-- Provide a simple task queue/status view.
-- Show recent tasks by caller, status, duration, cost, and verifier result.
+- Provide a simple task queue/status view. Done: `hst tasks` (status, caller, age, duration, LLM-gist of each prompt) and `hst health`.
+- Show recent tasks by caller, status, duration, cost, and verifier result. Done except verifier result: `hst tasks` and `hst costs` (per-task cost with caller; subscription-billed `$0` shown as such, any other `$0` shown as unknown, never free).
 - Show callback health and last callback errors.
-- Show transcript/evidence links or export paths.
-- Add a quick “what is running now?” command or view.
+- Show transcript/evidence links or export paths. Done: `hst transcript <id>` exports the session JSONL and prints the path.
+- Add a quick “what is running now?” command or view. Done: `hst tasks -s running` and `hst watch`.
 - Add a compact Discord/mobile-friendly summary for completed verified tasks and failures.
 
 Validation:
@@ -234,7 +236,7 @@ Validation:
 1. Prove a live authenticated task that returns result, transcript, decomposition, and cost together.
 2. Stand up and test a real callback listener for an active dispatcher client.
 3. Have dispatcher clients pass `callback_url` on dispatch.
-4. Add a small “current tasks” operator command or documented SQLite query.
+4. Done: the `hst` CLI (`scripts/hst.ts`) is the current-tasks operator command — `hst tasks`, `hst task <id>`, `hst costs`, `hst watch`, `hst health`.
 5. Tighten token-derived caller identity.
 6. Add one verifier-loop negative test that must not pass from final prose alone.
 7. Update README and docs as each roadmap phase moves from target to verified.

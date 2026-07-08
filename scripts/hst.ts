@@ -4,7 +4,8 @@
  *
  * Single file, zero npm deps: bun:sqlite for the DB, hand-rolled
  * ccusage-style renderer (box tables, ANSI-aware widths, responsive
- * columns). Read-only over the async bridge's SQLite state.
+ * columns). Opens SQLite read-write only so WAL files are visible, then
+ * locks the handle with PRAGMA query_only=ON for strictly read-only behavior.
  *
  * Install: symlink into a PATH dir as `hst` and/or `hermes-satellite`.
  */
@@ -69,6 +70,11 @@ const trunc = (s: string, n: number) => {
 const num = (v: number | null | undefined) => (v == null ? "-" : v.toLocaleString("en-US"));
 const usd = (v: number | null | undefined) =>
   v == null || v === 0 ? dim("unknown") : `$${v.toFixed(4)}`;
+const debugFailure = (context: string, err: unknown) => {
+  if (!process.env.HST_DEBUG) return;
+  const reason = err instanceof Error ? err.message : String(err);
+  console.error(dim(`hst debug: ${context}: ${reason}`));
+};
 const relTime = (epoch: number | null) => {
   if (!epoch) return "-";
   const s = Math.max(0, Date.now() / 1000 - epoch);
@@ -128,7 +134,10 @@ function kv(k: string, v: string) {
 // ── db ─────────────────────────────────────────────────────────────────────
 function db(): Database {
   try {
-    return new Database(DB_PATH, { readonly: true });
+    const d = new Database(DB_PATH, { readwrite: true });
+    d.exec("PRAGMA query_only = ON;");
+    d.query("SELECT 1").get();
+    return d;
   } catch {
     console.error(red(`hst: cannot open bridge db: ${DB_PATH}`));
     process.exit(1);
@@ -140,6 +149,95 @@ type Task = {
   caller: string | null; profile: string | null; created_at: number;
   started_at: number | null; completed_at: number | null; followups: string;
 };
+type CostRow = {
+  estimated_usd: number | null;
+  billing_mode: string | null;
+  cost_unreconciled: number | boolean | null;
+};
+type TaskCost = CostRow & {
+  id: number;
+  task_id: string;
+  session_id: string;
+  loop_index: number;
+  provider: string | null;
+  model: string | null;
+  prompt_tokens: number | null;
+  completion_tokens: number | null;
+  cache_read_tokens: number | null;
+  cache_write_tokens: number | null;
+  reasoning_tokens: number | null;
+  total_tokens: number | null;
+  cost_source: string | null;
+  billing_provider: string | null;
+  pricing_version: string | null;
+  expensive_tools_used: string;
+  captured_at: number;
+  snapshot_json: string;
+};
+
+const cost = (r: CostRow) => {
+  if (r.cost_unreconciled) return red("unreconciled");
+  return r.billing_mode === "subscription_included" && !r.estimated_usd
+    ? grn("$0") + dim(" (subscription)")
+    : usd(r.estimated_usd);
+};
+
+async function gists(tasks: Task[]): Promise<Record<string, string>> {
+  if (process.env.HST_NO_GIST === "1") return {};
+  const cachePath = `${HERMES_HOME}/cache/hst_summaries.json`;
+  let cache: Record<string, string> = {};
+  try { cache = await Bun.file(cachePath).json(); } catch (err) { debugFailure("gist cache read failed", err); }
+  const missing = tasks.filter((t) => !cache[t.task_id] && t.prompt);
+  if (!missing.length) return cache;
+  const envFile = await Bun.file(`${HERMES_HOME}/.env`).text().catch((err) => {
+    debugFailure("gist env read failed", err);
+    return "";
+  });
+  const envKey = (name: string) => {
+    if (process.env[name]) return process.env[name];
+    const line = envFile.split("\n").find((l) => l.startsWith(`${name}=`));
+    return line?.slice(name.length + 1).trim().replace(/^(['"])(.*)\1$/, "$2") || undefined;
+  };
+  // first provider with a key wins; groq is fastest, openrouter :free costs nothing
+  const provider = [
+    { base: "https://api.groq.com/openai/v1", model: "llama-3.1-8b-instant", key: envKey("GROQ_API_KEY") },
+    { base: "https://openrouter.ai/api/v1", model: "meta-llama/llama-3.3-70b-instruct:free", key: envKey("OPENROUTER_API_KEY") },
+  ].find((p) => p.key);
+  if (!provider) return cache;
+  try {
+    const body = {
+      model: process.env.HST_GIST_MODEL || provider.model,
+      response_format: { type: "json_object" },
+      max_tokens: 600,
+      temperature: 0,
+      messages: [
+        {
+          role: "system",
+          content: "You compress AI-agent task prompts into terse gists. For each entry return a gist of AT MOST 8 words, imperative mood, no trailing period. Reply with ONLY a JSON object mapping each id to its gist.",
+        },
+        {
+          role: "user",
+          content: JSON.stringify(Object.fromEntries(missing.map((t) => [t.task_id, t.prompt.slice(0, 1200)]))),
+        },
+      ],
+    };
+    const res = await fetch(`${provider.base}/chat/completions`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${provider.key}`, "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(4000),
+    });
+    if (!res.ok) throw new Error(`gist request failed: HTTP ${res.status}`);
+    const json = await res.json();
+    const out = JSON.parse(json.choices[0].message.content);
+    const ids = new Set(missing.map((t) => t.task_id));
+    for (const [id, gist] of Object.entries(out)) {
+      if (ids.has(id) && typeof gist === "string") cache[id] = gist;
+    }
+    await Bun.write(cachePath, JSON.stringify(cache, null, 1));
+  } catch (err) { debugFailure("gist request failed", err); }
+  return cache;
+}
 
 function resolveTask(d: Database, prefix: string): Task {
   const rows = d.query<Task, [string]>(`SELECT * FROM tasks WHERE task_id LIKE ?1 || '%'`).all(prefix);
@@ -158,7 +256,7 @@ const flag = (name: string, dflt: string) => {
 };
 
 // ── commands ───────────────────────────────────────────────────────────────
-function cmdTasks() {
+async function cmdTasks() {
   const d = db();
   const n = Number(flag("-n", "15"));
   const status = flag("-s", "");
@@ -169,12 +267,14 @@ function cmdTasks() {
     )
     .all();
   if (wantJson) return console.log(JSON.stringify(rows, null, 1));
+  const g = await gists(rows);
   banner("tasks");
   if (!rows.length) return console.log(dim("  no tasks"));
+  // Raw prompt fallback is safe here because the table flex column truncates display width.
   table(
     [
       { h: "id" }, { h: "status" }, { h: "profile" }, { h: "caller" },
-      { h: "age", right: true }, { h: "took", right: true }, { h: "prompt", flex: true },
+      { h: "age", right: true }, { h: "took", right: true }, { h: "gist", flex: true },
     ],
     rows.map((t) => [
       cyn(t.task_id.slice(0, 8)),
@@ -183,7 +283,7 @@ function cmdTasks() {
       t.caller || dim("-"),
       relTime(t.created_at),
       dur(t.started_at, t.completed_at),
-      t.prompt.replace(/\s+/g, " "),
+      g[t.task_id] ?? t.prompt.replace(/\s+/g, " "),
     ]),
   );
   const counts = d.query<{ status: string; n: number }, []>(
@@ -224,13 +324,13 @@ function cmdTask() {
       ]),
     );
   }
-  const costs = d.query<any, [string]>(
+  const costs = d.query<TaskCost, [string]>(
     `SELECT * FROM task_costs WHERE task_id=?1`).all(t.task_id);
   if (costs.length) {
     section("cost");
     for (const cRow of costs)
       kv(`loop ${cRow.loop_index}`,
-        `${usd(cRow.estimated_cost_usd)} ${dim(`· in ${num(cRow.prompt_tokens)} · out ${num(cRow.completion_tokens)} · ${cRow.model ?? ""}`)}`);
+        `${cost(cRow)} ${dim(`· in ${num(cRow.prompt_tokens)} · out ${num(cRow.completion_tokens)} · ${cRow.model ?? ""}`)}`);
     console.log();
   }
   const events = d.query<any, [string]>(
@@ -278,23 +378,23 @@ function cmdEvents() {
 function cmdCosts() {
   const d = db();
   const n = Number(flag("-n", "15"));
-  let rows: any[] = [];
+  let rows: (TaskCost & { caller: string | null })[] = [];
   try {
-    rows = d.query<any, []>(
+    rows = d.query<TaskCost & { caller: string | null }, []>(
       `SELECT c.*, t.caller FROM task_costs c LEFT JOIN tasks t ON t.task_id=c.task_id
        ORDER BY c.id DESC LIMIT ${n}`).all();
-  } catch { /* table may not exist on older bridges */ }
+  } catch (err) { debugFailure("cost snapshots query failed", err); }
   if (wantJson) return console.log(JSON.stringify(rows, null, 1));
   banner("costs");
   if (!rows.length) return console.log(dim("  no cost snapshots recorded"));
   table(
-    [{ h: "task" }, { h: "model", flex: true }, { h: "in", right: true }, { h: "out", right: true }, { h: "est cost", right: true }],
+    [{ h: "task" }, { h: "caller", flex: true }, { h: "model" }, { h: "in", right: true }, { h: "out", right: true }, { h: "est cost", right: true }],
     rows.map((r) => [
-      cyn(String(r.task_id).slice(0, 8)), r.model ?? dim("-"),
-      num(r.prompt_tokens), num(r.completion_tokens), usd(r.estimated_cost_usd),
+      cyn(String(r.task_id).slice(0, 8)), r.caller || dim("-"), r.model ?? dim("-"),
+      num(r.prompt_tokens), num(r.completion_tokens), cost(r),
     ]),
   );
-  console.log(`\n  ${dim("MoA/delegated sessions report $0 — treat as")} ${bold("unknown")}${dim(", never free.")}`);
+  console.log(`\n  ${dim("MoA/delegated $0 is")} ${bold("unreconciled")}${dim(" — unknown, never free. $0 (subscription) only when billing mode proves it.")}`);
 }
 
 async function cmdWatch() {
@@ -349,11 +449,17 @@ async function cmdLogs() {
 
 async function cmdHealth() {
   banner("health");
-  const svc = await Bun.$`launchctl list`.text().catch(() => "");
+  const svc = await Bun.$`launchctl list`.text().catch((err) => {
+    debugFailure("launchctl check failed", err);
+    return "";
+  });
   const line = svc.split("\n").find((l) => l.includes("hermes-async-bridge"));
   section("service");
   kv("launchd", line ? grn(line.trim()) : red("not loaded"));
-  const lsof = await Bun.$`lsof -nP -iTCP:${PORT} -sTCP:LISTEN`.text().catch(() => "");
+  const lsof = await Bun.$`lsof -nP -iTCP:${PORT} -sTCP:LISTEN`.text().catch((err) => {
+    debugFailure("port check failed", err);
+    return "";
+  });
   const bound = lsof.trim().split("\n").slice(-1)[0] ?? "";
   kv("port", bound ? grn(bound.replace(/\s+/g, " ")) : red(`nothing on :${PORT}`));
   kv("db", DB_PATH.replace(HOME, "~"));
@@ -392,7 +498,7 @@ ${dim("--json on tasks/task/events/costs for scripting. NO_COLOR disables color.
 }
 
 switch (cmd) {
-  case "tasks": cmdTasks(); break;
+  case "tasks": await cmdTasks(); break;
   case "task": cmdTask(); break;
   case "events": cmdEvents(); break;
   case "costs": cmdCosts(); break;

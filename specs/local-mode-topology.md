@@ -16,7 +16,7 @@ The minimum topology is:
 2. a long-lived **Hermes Host service** that owns the Task Engine, durable execution queue, Hermes subprocesses, and host-produced Evidence;
 3. an ephemeral **Satellite Verifier process/session** spawned by the Dispatcher for each verification pass with a read-only tool allowlist and no dispatch credential.
 
-Local clients connect only to the Dispatcher service. The Dispatcher connects to the Hermes Host service over authenticated loopback. Both long-lived services survive reboot through the native service manager. The Satellite Verifier can be recreated entirely from the durable Task Trace, so it does not need its own daemon or database.
+Local clients connect only to the Dispatcher service. The Dispatcher connects to the Hermes Host service over authenticated loopback. Both long-lived services survive reboot through the native service manager. The Satellite Verifier can be recreated from a durable verification-input Artifact and Task Trace, so it does not need its own daemon or database.
 
 ```mermaid
 flowchart TB
@@ -67,9 +67,9 @@ The target adds one durable Dispatcher service because verified asynchronous wor
 | Dispatcher service | supervised/long-lived | authenticate clients, map MCP/A2A, follow Task Events, invoke verifier passes, submit reports, request corrective Executions | run Hermes; author verifier judgment; directly mutate Task Engine storage |
 | Satellite Verifier | ephemeral per pass | read its frozen verification input, use approved read-only oracle tools, return a structured Verification Report | create/continue/cancel Tasks; call Hermes; receive Dispatcher or Host mutation credentials; write to the target workspace |
 | Hermes Host service | supervised/long-lived | own Task Engine state, lease Executions, run Hermes, capture result/Evidence/cost, serve authorized internal operations | expose a Verified Result without a valid Dispatcher-owned report; invoke itself as Dispatcher |
-| Hermes subprocess | ephemeral per Execution | perform the dispatched work within its profile | read Dispatcher credentials; submit work back to its own installation; author Verification Reports |
+| Hermes subprocess | ephemeral per Execution | perform the dispatched work within its profile | inherit Dispatcher credentials; submit work back to its own installation through authorized APIs; author Verification Reports |
 
-The Dispatcher service may submit the verifier's structured output to the Task Engine using its verifier-scoped service identity. The report records the verifier process/session identity and input digest so attribution survives transport without giving the ephemeral process a network credential.
+The Dispatcher service brokers the verifier's structured output to the Task Engine using a report-only credential that identifies the Satellite Verifier principal. The report records the verifier process/session identity, verification-input Artifact ID/digest, policy version, and pass idempotency key. This preserves authorship and authorization without giving the ephemeral process a network credential or Task mutation authority.
 
 ## Listener boundary
 
@@ -88,20 +88,22 @@ The current Tailscale-only bridge at `100.66.249.14:8081` is evidence of the exi
 
 Loopback is not treated as identity. Authentication remains mandatory.
 
-Local setup generates and stores two installation-scoped service credentials:
+Local setup generates and stores three installation-scoped credentials:
 
 1. a client-to-Dispatcher credential scoped to the User/device principal;
-2. a Dispatcher-to-Host credential scoped to the Dispatcher service principal.
+2. a Dispatcher-to-Host control credential scoped to the Dispatcher service principal;
+3. a Dispatcher-held report credential scoped only to `submitVerificationReport` and identifying the Satellite Verifier principal.
 
-The Satellite Verifier and Hermes subprocess receive neither credential. Secrets are injected into only the process that needs them and are omitted from Hermes/verifier child environments. A caller-supplied `caller` string remains display metadata and never grants access.
+The ephemeral Satellite Verifier and Hermes subprocess receive none of these credentials. Secrets are injected into only the long-lived process that needs them and are omitted from Hermes/verifier child environments. This prevents accidental inheritance and ordinary self-dispatch; it is not an adversarial isolation claim against same-user processes on a compromised Host. A caller-supplied `caller` string remains display metadata and never grants access.
 
 The Host authorizes operations by principal role:
 
 | Principal role | Allowed Host operations |
 |---|---|
-| Dispatcher | create/continue/cancel authorized Tasks, read Task state and Events, read authorized Evidence descriptors/bodies, submit attributed Verification Reports |
+| Dispatcher control principal | create/continue/cancel authorized Tasks, read Task state and Events, read authorized Evidence descriptors/bodies |
+| Satellite Verifier principal, brokered by Dispatcher | submit an attributed Verification Report only |
 | Hermes executor | claim/update its leased Execution, record result, Evidence, and Cost Records |
-| Satellite Verifier | no direct Host access in Local Mode |
+| Ephemeral verifier process | no direct Host access in Local Mode |
 | Local client | no direct Host access in Local Mode |
 
 Exact credential issuance, rotation, and pairing remain owned by the identity and authorization ticket. Local Mode requires these scopes but does not invent another authentication system.
@@ -111,9 +113,9 @@ Exact credential issuance, rotation, and pairing remain owned by the identity an
 The Host produces Evidence; the Dispatcher decides what to verify; the Satellite Verifier judges it.
 
 1. Hermes finishes an Execution and the Host commits its result, transcript Evidence descriptor, Cost Records, and terminal Execution event.
-2. The Dispatcher resumes from its Task Event cursor and requests the authorized Evidence required for verification.
-3. The Dispatcher builds an immutable verification input bundle containing the original intent/acceptance criteria, Hermes result, Evidence IDs/digests, transcript body when authorized, and world-check instructions.
-4. The Satellite Verifier process receives that frozen bundle plus read-only oracle tools.
+2. The Dispatcher resumes from the Task's Event cursor and requests the authorized Evidence required for verification.
+3. The Dispatcher builds and records an immutable verification-input Artifact containing the original intent/acceptance criteria, Hermes result, Evidence IDs/digests, transcript body when authorized, world-check instructions, verifier policy version, pass state, and idempotency key.
+4. The Satellite Verifier process receives that recorded bundle plus read-only oracle tools.
 5. The verifier returns a structured report: `verified`, `correction_required`, or `unverifiable`.
 6. The Dispatcher validates the output shape, attaches process/input provenance, and submits the report to the Task Engine.
 7. For `correction_required`, the Dispatcher—not the verifier—creates the corrective Continuation and requests the next Execution.
@@ -142,13 +144,13 @@ This is meaningful independent verification against ordinary executor error and 
 Accidental self-dispatch is prevented by capability separation rather than a new recursion counter:
 
 - local clients know only the Dispatcher endpoint;
-- Hermes and verifier child environments do not contain Dispatcher or Host mutation credentials;
+- Hermes and verifier child environments do not inherit Dispatcher or Host mutation credentials;
 - the Host rejects Task creation, continuation, and cancellation from executor or verifier principals;
 - the Dispatcher rejects an inbound request whose authenticated principal is its own Host executor identity;
 - all corrective work must reference the existing active Task and originate from the Dispatcher service;
 - the Task Trace records actor principal and causation for every Message and Execution.
 
-These rules stop Hermes from recursively dispatching to itself during normal operation. A User who deliberately gives Hermes the Dispatcher credential has crossed the documented trust boundary; Local Mode does not pretend to defend against that configuration.
+These rules stop accidental recursive dispatch during normal operation. Because the current Host uses one OS account, they do not prevent a malicious same-user process from searching for credentials. A User who deliberately gives Hermes the Dispatcher credential—or permits Hermes to escape its tool/profile boundary—has crossed the documented Local Mode trust boundary.
 
 ## Durable supervision
 
@@ -156,7 +158,7 @@ On macOS, both long-lived processes are launchd LaunchAgents with:
 
 - `RunAtLoad=true` and `KeepAlive=true`;
 - non-interactive startup and no password/keychain prompt;
-- explicit `HOME`, state paths, loopback binds, and secret-file paths;
+- explicit `HOME`, state paths, loopback binds, and non-interactive credential sources;
 - separate stdout/stderr logs and health status;
 - bounded restart backoff so a bad configuration does not spin continuously;
 - a versioned installed source path, not a mutable development worktree;
@@ -186,14 +188,16 @@ Cancellation remains terminal where defined and cannot be overwritten by a late 
 
 On startup, the Dispatcher:
 
-1. loads its last committed event cursor;
-2. obtains the current principal-scoped Task snapshot;
-3. replays Events after the cursor idempotently;
+1. loads its compact durable per-Task cursor map;
+2. lists active principal-scoped Tasks and reconciles each current snapshot, including Tasks absent from or newer than the cursor map;
+3. replays each Task's Events after that Task's cursor idempotently;
 4. finds Tasks awaiting verification, correction, or User input;
-5. restarts missing verification passes from their immutable input bundle;
-6. resubmits reports and corrections with the original idempotency keys when acknowledgement is uncertain.
+5. restarts missing verification passes from their recorded verification-input Artifacts and pass-state Events;
+6. resubmits reports and corrections with the recorded original idempotency keys when acknowledgement is uncertain.
 
-If the Dispatcher dies while Hermes runs, the Host completes and persists the Execution. If the verifier dies, the Task stays `awaiting_verification`; the Dispatcher records the failed pass and retries within policy. Neither failure converts an unverified result into a Verified Result.
+The cursor map is a small local Dispatcher state file written atomically; it is not a second task database or source of truth. If it is missing or stale, principal-scoped active-Task reconciliation plus idempotent Task commands recovers safely.
+
+If the Dispatcher dies while Hermes runs, the Host completes and persists the Execution. If the verifier dies, the Task stays `awaiting_verification`; the Dispatcher records the failed pass as a Task Event and retries the recorded input within policy. Neither failure converts an unverified result into a Verified Result.
 
 ## Current-to-target migration
 
@@ -217,11 +221,11 @@ Local Mode is specified correctly only when implementation tests can prove:
 1. A fresh machine can configure Local Mode without Cloudflare, Tailscale, DNS, or an external account.
 2. A local MCP or A2A client reaches only the Dispatcher endpoint and receives a Verified Result only after a valid report.
 3. The Host and Dispatcher bind only to loopback and reject missing/incorrect credentials.
-4. Hermes and verifier child environments contain no Dispatcher/Host mutation credentials.
+4. Hermes and verifier child environments inherit no Dispatcher/Host mutation credentials, and the same-user trust ceiling is stated honestly.
 5. A verifier pass with a mutating tool call is rejected and cannot close the Task as verified.
 6. Hermes cannot create or continue a Task using its executor principal.
 7. Killing the client does not stop execution or verification coordination.
-8. Killing/restarting the Dispatcher during Hermes execution resumes from the Event cursor without duplicate correction.
+8. Killing/restarting the Dispatcher during Hermes execution reconciles active Tasks and resumes from per-Task Event cursors without duplicate correction.
 9. Killing/restarting the Host recovers queued/orphaned Executions without loss or double execution.
 10. Rebooting the machine restores both services without console interaction and resumes an incomplete Task.
 11. Full transcript and artifact bodies remain local while Verification Reports reference their Evidence IDs/digests.

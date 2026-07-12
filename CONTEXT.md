@@ -17,8 +17,12 @@ The user-controlled machine on which Hermes and the Task Engine execute dispatch
 _Avoid_: Bridge host, worker box
 
 **Dispatcher**:
-A client-side control surface that submits work, receives task state and evidence, invokes the Satellite Verifier, and sends corrective follow-ups when verification does not close the loop.
-_Avoid_: Orchestrator, caller
+A control-plane role that accepts work from Dispatch Surfaces, submits it to the Task Engine, receives task state and Evidence, invokes the Satellite Verifier, and sends corrective follow-ups when verification does not close the loop. The Dispatcher may share a machine with the Hermes Host but never its process, context, or authority.
+_Avoid_: Dispatch Surface, Orchestrator, caller
+
+**Dispatch Surface**:
+A User-facing client such as a local agent, CLI, or managed web application that sends requests to the Dispatcher and presents task progress and Verified Results. It does not execute Hermes work or author verification judgment.
+_Avoid_: Dispatcher, verifier, protocol adapter
 
 **Task Engine**:
 The protocol-neutral authority for task lifecycle, continuation, evidence, verification state, and cost records.
@@ -123,7 +127,7 @@ A Connectivity Mode in which user-owned Cloudflare Tunnel and Access expose the 
 _Avoid_: Cloudflare mode, public bind
 
 **Managed Mode**:
-A Connectivity Mode in which an AOJ-operated Managed Relay connects Dispatchers to a Hermes Host without requiring the User to own Cloudflare or networking infrastructure.
+A Connectivity Mode in which AOJ-operated identity, Dispatch Surfaces, and a Managed Relay reach the User-installed Dispatcher runtime through an outbound Host connection. The User does not need Cloudflare or private-network infrastructure, and verification still executes locally under the Dispatcher.
 
 **Managed Relay**:
 AOJ-operated control-plane infrastructure that routes task envelopes and small Verified Results over an outbound connection from the Hermes Host. It is not a repository, artifact, or transcript store.

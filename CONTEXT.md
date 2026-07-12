@@ -113,24 +113,24 @@ The terminal abandonment of the User's intent. It prevents new Executions and ca
 _Avoid_: Execution Cancellation, process termination
 
 **Connectivity Mode**:
-One of the supported ways a Dispatcher reaches a Hermes Host: Local, Private, Public Edge, or Managed. Connectivity Modes are technical deployment choices, not commercial tiers.
+One of the supported ways a Dispatch Surface reaches the User-installed Dispatcher: Local, Private, Public Edge, or Managed. Connectivity Modes are technical deployment choices, not Commercial Tiers; the Dispatcher-to-Host boundary remains local and unchanged.
 _Avoid_: Tier, plan
 
 **Local Mode**:
-A Connectivity Mode in which Dispatcher and Hermes Host communicate on the same machine without an external account or network service.
+A Connectivity Mode in which same-machine Dispatch Surfaces reach the Dispatcher over loopback without an external account or network service.
 
 **Private Mode**:
-A Connectivity Mode in which user-owned private networking connects Dispatchers to the Hermes Host.
+A Connectivity Mode in which User-owned private networking connects enrolled remote Dispatch Surfaces to the Dispatcher without public exposure.
 
 **Public Edge Mode**:
-A Connectivity Mode in which user-owned Cloudflare Tunnel and Access expose the locally bound service through a protected hostname.
+A Connectivity Mode in which User-owned Cloudflare Tunnel and Access expose the locally bound Dispatcher to authorized Dispatch Surfaces through a protected hostname.
 _Avoid_: Cloudflare mode, public bind
 
 **Managed Mode**:
 A Connectivity Mode in which AOJ-operated identity, Dispatch Surfaces, and a Managed Relay reach the User-installed Dispatcher runtime through an outbound Host connection. The User does not need Cloudflare or private-network infrastructure, and verification still executes locally under the Dispatcher.
 
 **Managed Relay**:
-AOJ-operated control-plane infrastructure that routes task envelopes and small Verified Results over an outbound connection from the Hermes Host. It is not a repository, artifact, or transcript store.
+AOJ-operated control-plane infrastructure that routes task envelopes and small Verified Results between managed Dispatch Surfaces and the User-installed Dispatcher over an outbound installation connection. It is not a repository, Artifact, transcript store, Task Engine, or verifier.
 _Avoid_: Cloudflare Tunnel, bulk data plane
 
 **Commercial Tier**:

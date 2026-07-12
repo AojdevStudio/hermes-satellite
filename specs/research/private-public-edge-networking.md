@@ -11,7 +11,7 @@ Wayfinder ticket: [Choose Private and Public Edge networking architecture](https
 - **Private Mode:** use persistent **Tailscale Serve** on the Hermes machine to terminate tailnet HTTPS and reverse-proxy only to the loopback Dispatcher listener. Restrict the Serve destination with a least-privilege Tailscale grant. Do not bind the Dispatcher to a tailnet address and do not use Funnel.
 - **Public Edge Mode:** use one **named Cloudflare Tunnel** running beside the Dispatcher. Publish one Access-protected hostname whose only ingress target is the loopback Dispatcher listener. End the ingress list with `http_status:404`.
 - **Worker:** **not needed now.** Tunnel supplies public routing and origin reachability; Access supplies human and service authentication; the Dispatcher already owns protocol mapping, principal authorization, task semantics, streaming, and replay. Add a Worker only if a later ticket proves a required edge transformation that cannot safely live in Access, Tunnel, or the Dispatcher.
-- **Fallback:** authenticated local loopback is always the break-glass path. A narrowly granted Tailscale Serve path may remain as the independent remote-admin path when Public Edge is primary. Never use an Access `Bypass` policy as fallback.
+- **Fallback:** authenticated local loopback is always the Hermes Satellite break-glass path. Platform administration may use a separately secured LAN/Tailscale SSH path, but Hermes Satellite does not invent an admin-only HTTP route. Keeping Tailscale Serve enabled beside Public Edge creates a second full Private Dispatch Surface and must be presented as such. Never use an Access `Bypass` policy as fallback.
 
 Both modes expose the **Dispatcher, never the Host listener**. The Satellite Verifier, full transcripts, bulk Evidence, repository data, terminal streams, and artifact bodies remain local as required by the [Connectivity Mode contract](../connectivity-mode-contracts.md#execution-and-verification-placement) and [Local Mode topology](../local-mode-topology.md#listener-boundary).
 
@@ -23,6 +23,7 @@ These are vendor capabilities and constraints, not Hermes Satellite design choic
 
 - Tailscale Serve can proxy a service on `127.0.0.1` to an HTTPS name available only inside the tailnet. Serve removes spoofable incoming Tailscale identity headers and adds authenticated user identity headers at the local proxy; tagged-device traffic does not receive user identity headers. Tailscale explicitly recommends a localhost-only backend when those headers are trusted. [Tailscale Serve](https://tailscale.com/docs/features/tailscale-serve)
 - `tailscale serve --bg` persists across a device reboot and Tailscale restart until explicitly disabled. [Serve CLI](https://tailscale.com/docs/reference/tailscale-cli/serve)
+- Serve HTTPS requires MagicDNS and HTTPS to be enabled for the tailnet so Tailscale can provision a certificate for the machine's tailnet DNS name. The interactive CLI can prompt to enable HTTPS, but an unattended installer must preflight this account-level state rather than wait for a console prompt. [Tailscale Serve](https://tailscale.com/docs/features/tailscale-serve) [HTTPS certificates](https://tailscale.com/docs/how-to/set-up-https-certificates)
 - Grants are deny-by-default and can select users, groups, devices, and tags as sources and destinations. Matching grants accumulate, so a narrow grant does not cancel a broader existing grant. [Grants syntax](https://tailscale.com/docs/reference/syntax/grants)
 - A Tailscale connection carries both node identity and either user identity or tag identity. Tags are for non-human machines; applying a tag removes the device's user ownership. Serve user headers are unavailable for tagged sources, while optional Serve application-capability headers can represent grants for users or tagged nodes. [Tailscale identity](https://tailscale.com/docs/concepts/tailscale-identity) [Device tags](https://tailscale.com/docs/features/tags) [Application capabilities](https://tailscale.com/docs/features/access-control/grants/grants-app-capabilities)
 - Tailscale first attempts direct encrypted device-to-device connections and can fall back to DERP relays. Coordination, DERP, and backend traffic require outbound HTTPS; direct paths generally use UDP. If the coordination server is unavailable, already established connections and cached policy can continue, but new connections, key refresh, revocation, and policy updates cannot. [Firewall ports](https://tailscale.com/docs/reference/faq/firewall-ports) [Control and data planes](https://tailscale.com/docs/concepts/control-data-planes)
@@ -77,12 +78,13 @@ The origin hop can be HTTP because it never leaves loopback. Adding origin TLS w
 ### Private Mode
 
 1. Run Tailscale normally on the Hermes machine and each remote Dispatch Surface.
-2. Configure persistent Serve HTTPS to proxy the whole Hermes Satellite dispatch surface to `http://127.0.0.1:<dispatcher-port>`.
-3. Apply a narrow tailnet grant from the intended human users/groups and explicitly tagged non-human client devices to only the installation's Serve destination and HTTPS port. Audit broader existing grants because grants accumulate.
-4. Keep human laptops user-owned. Use tags only for unattended service devices; do not retag a shared Hermes machine during install without checking the effect on its existing Tailscale identity and grants.
-5. Do not use Funnel. Public exposure belongs only to Public Edge through Access.
+2. Preflight that the tailnet is running, MagicDNS and HTTPS are enabled, the machine has a usable tailnet DNS name, and the intended grant can be evaluated. This check is non-interactive. If any prerequisite is absent, leave the installation in Local Mode with no partial Serve configuration and give the User the exact provider-side prerequisite to complete.
+3. Configure persistent Serve HTTPS to proxy the whole Hermes Satellite dispatch surface to `http://127.0.0.1:<dispatcher-port>`.
+4. Apply a narrow tailnet grant from the intended human users/groups and explicitly tagged non-human client devices to only the installation's Serve destination and HTTPS port. Audit broader existing grants because grants accumulate.
+5. Keep human laptops user-owned. Use tags only for unattended service devices; do not retag a shared Hermes machine during install without checking the effect on its existing Tailscale identity and grants.
+6. Do not use Funnel. Public exposure belongs only to Public Edge through Access.
 
-Tailscale identity is the **network admission layer**, not final Task authorization. Serve user headers can seed or corroborate human principal mapping, but tagged agents have no user headers. Therefore every Dispatch Surface still presents its own Hermes Satellite credential and the Dispatcher scopes create/get/list/continue/cancel/Evidence operations to that principal. Optional Tailscale application-capability headers are deferred until the identity ticket proves they simplify policy rather than duplicate it.
+Tailscale identity is the **network admission layer**, not final Task authorization. Serve user headers can seed or corroborate human principal mapping, but tagged agents have no user headers. Therefore each request still presents a Hermes Satellite credential governed by the identity policy, and the Dispatcher scopes create/get/list/continue/cancel/Evidence operations to its resolved principal. Optional Tailscale application-capability headers are deferred until the identity ticket proves they simplify policy rather than duplicate it.
 
 ### Public Edge Mode
 
@@ -97,14 +99,14 @@ ingress:
 
 The actual installer owns the hostname, UUID, credentials path, port, service supervision, and configuration format. The required properties are invariant: no wildcard hostname, no Host origin, no LAN origin, no unauthenticated sibling route, and a final rejecting catch-all.
 
-Attach both of these Access policy classes to the application:
+The application must support both relevant Access policy classes; the identity/security tickets decide the exact credential inventory and selectors:
 
-- **Human:** an IdP-backed `Allow` policy restricted to the intended User identities. Device posture/WARP may be added as a `Require` condition for managed devices, but is not mandatory for the base mode.
-- **Machine:** a `Service Auth` policy naming the exact service token for each non-interactive Dispatch Surface or automation boundary. Do not use “any service token,” share one token across unrelated devices, or create a bypass policy.
+- **Human:** an IdP-backed `Allow` policy restricted by the later identity/security policy. Device posture/WARP is available as an additional `Require` condition; this research does not decide whether it is mandatory.
+- **Machine:** a `Service Auth` policy using service tokens selected and managed by the later identity/security policy. A bypass policy is not an authentication substitute.
 
-The Dispatcher validates `Cf-Access-Jwt-Assertion` against the configured team issuer, application audience, expiry, and current JWKS before using any Access claim. It then authenticates the separate Hermes Satellite client credential and maps the combined result to a `PrincipalRef`. A caller-supplied name remains display metadata.
+The Dispatcher validates `Cf-Access-Jwt-Assertion` against the configured team issuer, application audience, expiry, and current JWKS before using any Access claim. It separately authenticates the Hermes Satellite application credential. The identity ticket defines which validated claims map to a `PrincipalRef`; a caller-supplied name remains display metadata.
 
-Use Cloudflare's normal two service-token headers, leaving the application's `Authorization` header available for Hermes Satellite authentication. A client that cannot send the two Cloudflare headers plus the application credential is not Public-Edge-compatible yet; do not add a Worker merely to conceal that client limitation. mTLS is a valid later alternative for fleets with an existing certificate issue/rotation/revocation system, but service tokens are the minimum AFK-safe v1 path.
+Use Cloudflare's normal two service-token headers, leaving the application's `Authorization` header available for Hermes Satellite authentication. A client that cannot send the two Cloudflare headers plus the application credential is not Public-Edge-compatible yet; do not add a Worker merely to conceal that client limitation. Service-token issuance, sharing boundaries, rotation, and any mTLS alternative remain identity/security decisions.
 
 ### Why no Worker now
 
@@ -122,17 +124,17 @@ Both modes proxy the same Dispatcher HTTP adapter surface; they do not expose pr
 
 | Caller/path | Edge credential | Dispatcher credential | Streaming implication |
 |---|---|---|---|
-| Private human device | tailnet user/node identity allowed by grant | per-user/device Hermes principal | reconnect after path change; resume from Task Event cursor |
-| Private AFK agent | tagged node allowed by grant | unique service/device Hermes principal | tagged nodes have no Serve user headers; never infer principal from a missing header |
-| Public human/browser | Access IdP session cookie/JWT; optional posture | Hermes user/device session or credential | browser must preserve Access session; SSE endpoint emits `text/event-stream` |
-| Public AFK agent | exact Access service token via two headers | unique Hermes service/device credential | credentials accompany each new request/stream; reconnect and cursor replay after disconnect |
+| Private human device | tailnet user/node identity allowed by grant | Hermes principal under the identity policy | reconnect after path change; resume from Task Event cursor |
+| Private AFK agent | tagged node allowed by grant | Hermes credential under the identity policy | tagged nodes have no Serve user headers; never infer principal from a missing header |
+| Public human/browser | Access IdP session cookie/JWT; optional posture | Hermes principal under the identity policy | browser must preserve Access session; SSE endpoint emits `text/event-stream` |
+| Public AFK agent | Access Service Auth via two headers | Hermes credential under the identity policy | credentials accompany each new request/stream; reconnect and cursor replay after disconnect |
 
 Specific implications:
 
 - MCP Streamable HTTP POST/GET and A2A HTTP operations remain normal HTTPS requests through the same edge. Edge success does not grant Task access.
 - Any SSE response sets `Content-Type: text/event-stream`, emits bounded keepalives, and treats disconnect as delivery failure only. The durable Task Event is committed before delivery; the client reconnects with its cursor and does not resubmit the Task.
 - If WebSockets are introduced later, authenticate and authorize the handshake, assume the connection can drop, and recover from durable Task Events. Do not advertise streaming capability until the selected client, Access policy, Tunnel, Dispatcher, reconnect, and replay path pass conformance.
-- Service tokens identify an automation boundary, not a human. One token per Dispatch Surface or tightly coupled deployment keeps revocation and audit attribution meaningful. Hermes principal authorization remains finer-grained and controls task ownership and Evidence access.
+- Service tokens identify an automation boundary, not a human. The later identity/security contract defines token cardinality and attribution. Hermes principal authorization remains a separate boundary controlling task ownership and Evidence access.
 - Full transcript and bulk Evidence endpoints are not published merely because the control protocol supports artifact references. Remote callers receive only explicitly authorized small excerpts; verification continues locally after the originating stream disconnects.
 
 ## Administration and fallback
@@ -140,8 +142,8 @@ Specific implications:
 The recovery order is deliberately short:
 
 1. **Authenticated local loopback** is always available for health, credential repair, mode changes, and disable/rollback operations.
-2. **Private Tailscale Serve** may remain enabled as a narrowly granted remote-admin path while Public Edge is primary. It reaches only the Dispatcher and uses independent Tailscale plus Hermes credentials.
-3. Console/SSH recovery is installation/platform policy, not a Dispatch Surface. It must not expose the Host HTTP listener or reuse Dispatch credentials.
+2. **Platform console/SSH recovery** may use separately secured LAN or Tailscale administration. It is installation/platform policy, not a Dispatch Surface, and must not expose the Host HTTP listener or reuse Dispatch credentials.
+3. **Optional dual mode:** if the User intentionally leaves Tailscale Serve enabled while Public Edge is primary, it remains a complete Private Dispatch Surface governed by normal Task authorization. The UI and diagnostics must label both external paths active; it is not an admin-only fallback.
 
 An alternate Cloudflare hostname, second Access policy, or second connector on the same machine is useful for diagnosis but is not independent fallback. Access `Bypass` removes the authentication boundary and is prohibited as break-glass.
 
@@ -168,7 +170,7 @@ An alternate Cloudflare hostname, second Access policy, or second connector on t
 
 Minimum pre-enable validation for either mode:
 
-1. Prove the Host listener is reachable only from the Dispatcher and that no LAN, tailnet, Tunnel, or public path can address it.
+1. Prove the Host listener is reachable only from the Dispatcher and that no LAN, tailnet, Tunnel, or public path can address it. Private setup also proves the Serve HTTPS/MagicDNS preflight fails closed to Local before making changes.
 2. Prove an admitted edge identity with an invalid Hermes credential is rejected, and a valid Hermes principal cannot read another principal's Task or Evidence.
 3. Run create -> observe/stream -> disconnect -> cursor replay -> terminal Execution -> local verification -> Verified Result.
 4. Interrupt the edge path during execution and prove Task Outcome does not change and retry does not create a duplicate Task.

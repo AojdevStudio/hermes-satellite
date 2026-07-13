@@ -127,7 +127,7 @@ A Connectivity Mode in which User-owned Cloudflare Tunnel and Access expose the 
 _Avoid_: Cloudflare mode, public bind
 
 **Managed Mode**:
-A Connectivity Mode in which AOJ-operated identity, Dispatch Surfaces, and a Managed Relay reach the User-installed Dispatcher runtime through an outbound Host connection. The User does not need Cloudflare or private-network infrastructure, and verification still executes locally under the Dispatcher.
+A Connectivity Mode in which AOJ-operated identity, Dispatch Surfaces, and a Managed Relay reach the User-installed Dispatcher runtime through an outbound Dispatcher connection. The Hermes Host service never connects to or becomes reachable through the relay. The User does not need Cloudflare or private-network infrastructure, and verification still executes locally under the Dispatcher.
 
 **Managed Relay**:
 AOJ-operated control-plane infrastructure that routes task envelopes and small Verified Results between managed Dispatch Surfaces and the User-installed Dispatcher over an outbound installation connection. It is not a repository, Artifact, transcript store, Task Engine, or verifier.

@@ -27,7 +27,12 @@ This is the canonical repo copy intended to replace the prototype `~/.hermes/scr
 
 ## Launch example
 
+Current self-hosted deployments run from a local clone. A clone-free installer and the managed service are planned, not available today.
+
 ```bash
+git clone https://github.com/AojdevStudio/hermes-satellite.git
+cd hermes-satellite
+
 export HERMES_HOME=~/.hermes
 export HERMES_ASYNC_BRIDGE_TOKEN='<shared bearer token>'
 export HERMES_ASYNC_BRIDGE_HOST=100.x.x.x

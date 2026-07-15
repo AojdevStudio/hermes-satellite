@@ -71,6 +71,13 @@ The design rule, stated plainly: **presence = free code, judgment = the model, o
 
 ## Quick start
 
+**Current self-hosted installation requires a local clone.** The bridge runs from this repository; a clone-free installer and the managed service are planned, not available today.
+
+```bash
+git clone https://github.com/AojdevStudio/hermes-satellite.git
+cd hermes-satellite
+```
+
 **On the Hermes host** - run the bridge (native Python FastMCP over Streamable HTTP):
 
 ```bash

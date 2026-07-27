@@ -60,7 +60,7 @@ PUBLIC_BASE_URL = os.environ.get("HERMES_ASYNC_BRIDGE_PUBLIC_URL", f"http://{DEF
 STREAMABLE_PATH = os.environ.get("HERMES_ASYNC_BRIDGE_PATH", "/mcp")
 ISSUER_URL = os.environ.get("HERMES_ASYNC_BRIDGE_ISSUER", "https://hermes.local")
 REQUIRED_SCOPES = tuple(s.strip() for s in os.environ.get("HERMES_ASYNC_BRIDGE_SCOPES", "hermes:submit").split(",") if s.strip())
-ALLOWED_PROFILES = tuple(s.strip() for s in os.environ.get("HERMES_ASYNC_BRIDGE_PROFILES", "builder").split(",") if s.strip())
+ALLOWED_PROFILES = tuple(s.strip() for s in os.environ.get("HERMES_ASYNC_BRIDGE_PROFILES", "fitness").split(",") if s.strip())
 
 TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
 

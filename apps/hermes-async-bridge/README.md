@@ -6,7 +6,7 @@ This is the canonical repo copy intended to replace the prototype `~/.hermes/scr
 
 ## Runtime contract
 
-- Transport: official Python MCP SDK `FastMCP` with `transport="streamable-http"`.
+- Transport: official Python MCP SDK 2.x `MCPServer` with `transport="streamable-http"`.
 - Auth: SDK bearer token verifier via `token_verifier` + `AuthSettings`; set `HERMES_ASYNC_BRIDGE_TOKEN`.
 - Bind: explicit Tailscale/LAN host only. The script refuses `0.0.0.0` for HTTP.
 - SQLite state: defaults to `$HERMES_HOME/async_bridge.db`. Inspect it read-only with the `hst` CLI (`scripts/hst.ts` at the repo root): tasks, per-task detail, costs, events, health.
@@ -61,7 +61,7 @@ Deployment checklist:
    `HERMES_ASYNC_BRIDGE_TOKEN`, and exec the repo bridge.
 5. Cut transport over at the same time: while `supergateway` is still in front,
    setting `HERMES_ASYNC_BRIDGE_TOKEN` does not protect HTTP because the Python
-   script only sees stdio. Auth is real only after native FastMCP HTTP is the
+   script only sees stdio. Auth is real only after native MCP HTTP is the
    process listening on the socket.
 
 ```bash
@@ -79,7 +79,8 @@ Local syntax check does not require `mcp` installed in this repo environment:
 python3 -m py_compile apps/hermes-async-bridge/hermes_async_bridge.py
 ```
 
-Runtime verification must use the Hermes venv, which is expected to have `mcp>=1.26,<2`:
+Runtime verification must use the Hermes venv, which is expected to satisfy
+`requirements.txt` (`mcp>=2,<3`):
 
 ```bash
 ~/.hermes/hermes-agent/venv/bin/python3 - <<'PY'

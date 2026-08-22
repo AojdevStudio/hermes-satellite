@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.aojdevstudio.fitness-reasoning-gateway</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Users/aojdevstudio/.hermes/hermes-agent/venv/bin/python3</string>
+        <string>/Volumes/AgentStorage/the-bridge/the-verifier-agent/apps/fitness-reasoning-gateway/fitness_reasoning_gateway.py</string>
+    </array>
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>FITNESS_GATEWAY_DEVICE_TOKEN_FILE</key>
+        <string>/Users/aojdevstudio/.hermes/secrets/fitness_gateway_simulator_token</string>
+        <key>FITNESS_GATEWAY_HOST</key>
+        <string>127.0.0.1</string>
+        <key>FITNESS_GATEWAY_PORT</key>
+        <string>8082</string>
+        <key>HERMES_ASYNC_BRIDGE_TOKEN_FILE</key>
+        <string>/Users/aojdevstudio/.hermes/secrets/hermes_async_bridge_token</string>
+        <key>HERMES_ASYNC_BRIDGE_URL</key>
+        <string>http://100.66.249.14:8081/mcp</string>
+        <key>HERMES_HOME</key>
+        <string>/Users/aojdevstudio/.hermes</string>
+        <key>HOME</key>
+        <string>/Users/aojdevstudio</string>
+        <key>PATH</key>
+        <string>/Users/aojdevstudio/.hermes/hermes-agent/venv/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin</string>
+    </dict>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/Users/aojdevstudio/Library/Logs/fitness-reasoning-gateway.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/aojdevstudio/Library/Logs/fitness-reasoning-gateway.err.log</string>
+</dict>
+</plist>

@@ -60,7 +60,7 @@ PUBLIC_BASE_URL = os.environ.get("HERMES_ASYNC_BRIDGE_PUBLIC_URL", f"http://{DEF
 STREAMABLE_PATH = os.environ.get("HERMES_ASYNC_BRIDGE_PATH", "/mcp")
 ISSUER_URL = os.environ.get("HERMES_ASYNC_BRIDGE_ISSUER", "https://hermes.local")
 REQUIRED_SCOPES = tuple(s.strip() for s in os.environ.get("HERMES_ASYNC_BRIDGE_SCOPES", "hermes:submit").split(",") if s.strip())
-ALLOWED_PROFILES = tuple(s.strip() for s in os.environ.get("HERMES_ASYNC_BRIDGE_PROFILES", "builder").split(",") if s.strip())
+ALLOWED_PROFILES = tuple(s.strip() for s in os.environ.get("HERMES_ASYNC_BRIDGE_PROFILES", "fitness").split(",") if s.strip())
 
 TERMINAL_STATUSES = {"completed", "failed", "cancelled"}
 
@@ -938,12 +938,12 @@ class StaticBearerVerifier:
         return AccessToken(token=token, client_id=self.client_id, scopes=list(REQUIRED_SCOPES))
 
 
-def create_mcp_server(*, host: str, port: int, token: str | None, allow_unauthenticated: bool = False):
+def create_mcp_server(*, token: str | None, allow_unauthenticated: bool = False):
     try:
+        from mcp.server import MCPServer  # type: ignore[import-not-found]
         from mcp.server.auth.settings import AuthSettings  # type: ignore[import-not-found]
-        from mcp.server.fastmcp import FastMCP  # type: ignore[import-not-found]
     except ImportError as exc:
-        logger.error("MCP SDK not available. Install/pin mcp>=1.26,<2 in the Hermes venv: %s", exc)
+        logger.error("MCP SDK not available. Install mcp>=2,<3 in the Hermes venv: %s", exc)
         raise
 
     kwargs: dict[str, Any] = {
@@ -953,9 +953,6 @@ def create_mcp_server(*, host: str, port: int, token: str | None, allow_unauthen
             "poll status, fetch transcript evidence, and read cost snapshots. MCP tool calls "
             "require bearer auth when running over HTTP."
         ),
-        "host": host,
-        "port": port,
-        "streamable_http_path": STREAMABLE_PATH,
     }
     if token:
         kwargs.update(
@@ -969,7 +966,7 @@ def create_mcp_server(*, host: str, port: int, token: str | None, allow_unauthen
     elif not allow_unauthenticated:
         raise RuntimeError("HERMES_ASYNC_BRIDGE_TOKEN is required for native HTTP MCP auth")
 
-    mcp = FastMCP(**kwargs)
+    mcp = MCPServer(**kwargs)
     task_mgr = TaskManager()
 
     @mcp.tool()
@@ -1078,8 +1075,16 @@ def main(argv: Iterable[str] = sys.argv[1:]) -> int:
     if args.transport == "streamable-http" and args.host in ("0.0.0.0", "::"):
         raise RuntimeError("Refusing blind bind by default. Set a Tailscale/LAN host, not 0.0.0.0.")
     logger.info("Hermes Async Task Bridge starting: transport=%s host=%s port=%s path=%s db=%s state_db=%s", args.transport, args.host, args.port, STREAMABLE_PATH, DB_PATH, STATE_DB_PATH)
-    mcp = create_mcp_server(host=args.host, port=args.port, token=token, allow_unauthenticated=args.allow_unauthenticated or args.transport == "stdio")
-    mcp.run(transport=args.transport)
+    mcp = create_mcp_server(token=token, allow_unauthenticated=args.allow_unauthenticated or args.transport == "stdio")
+    if args.transport == "streamable-http":
+        mcp.run(
+            transport=args.transport,
+            host=args.host,
+            port=args.port,
+            streamable_http_path=STREAMABLE_PATH,
+        )
+    else:
+        mcp.run(transport=args.transport)
     return 0
 
 

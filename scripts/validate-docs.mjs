@@ -47,11 +47,6 @@ function plainText(html) {
     .replace(/&amp;/g, "&")
     .replace(/\s+/g, " ");
 }
-function stripCodeSpans(text) {
-  return text.replace(/<code[\s\S]*?<\/code>/gi, " ")
-    .replace(/<pre[\s\S]*?<\/pre>/gi, " ");
-}
-
 const expectedPages = [
   "docs/docs/safety/index.html",
   "docs/docs/operations/index.html",

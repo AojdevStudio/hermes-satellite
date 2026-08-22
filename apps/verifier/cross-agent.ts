@@ -41,13 +41,23 @@ interface SourceGroup {
   agents: Discovered[];
 }
 
-function parseFrontmatter(raw: string): { description: string; body: string; fields: Record<string, string> } {
+interface FrontmatterFields {
+  [key: string]: string;
+}
+
+interface ParsedFrontmatter {
+  description: string;
+  body: string;
+  fields: FrontmatterFields;
+}
+
+function parseFrontmatter(raw: string): ParsedFrontmatter {
   const match = raw.match(/^---\s*\n([\s\S]*?)\n---\s*\n([\s\S]*)$/);
   if (!match) return { description: "", body: raw, fields: {} };
 
   const front = match[1] ?? "";
   const body = match[2] ?? "";
-  const fields: Record<string, string> = {};
+  const fields: FrontmatterFields = {};
   for (const line of front.split("\n")) {
     const idx = line.indexOf(":");
     if (idx > 0) fields[line.slice(0, idx).trim()] = line.slice(idx + 1).trim();

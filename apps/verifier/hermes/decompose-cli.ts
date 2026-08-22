@@ -7,6 +7,8 @@
  */
 
 import { readFileSync } from "node:fs";
+import Type from "typebox";
+import { Parse } from "typebox/value";
 
 import { decomposeTranscript } from "./decompose.js";
 import { parseExportJsonl } from "./transcript.js";
@@ -16,12 +18,20 @@ interface DecomposeCliInput {
   originalPrompt?: string;
 }
 
+const DecomposeCliInputSchema = Type.Object({
+  transcriptJsonl: Type.Optional(Type.String()),
+  originalPrompt: Type.Optional(Type.String()),
+});
+
 const inputPath = process.argv[2];
 if (!inputPath) {
   throw new Error("usage: decompose-cli <input-json-path>");
 }
 
-const input = JSON.parse(readFileSync(inputPath, "utf8")) as DecomposeCliInput;
+const input: DecomposeCliInput = Parse(
+  DecomposeCliInputSchema,
+  JSON.parse(readFileSync(inputPath, "utf8")),
+);
 const transcript = parseExportJsonl(input.transcriptJsonl ?? "");
 const output = decomposeTranscript({
   transcript,

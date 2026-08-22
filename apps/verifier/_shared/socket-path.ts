@@ -51,7 +51,7 @@ export interface ResolvedSocketPaths {
  * sessionId); the upstream callers should keep sessionIds short.
  */
 export function resolveSocketPath(sessionId: string, cwd: string): ResolvedSocketPaths {
-  if (!sessionId || /[\/\0\s]/.test(sessionId)) {
+  if (!sessionId || /[/\0\s]/.test(sessionId)) {
     throw new Error(
       `resolveSocketPath: sessionId must be non-empty and contain no path separators, ` +
         `null bytes, or whitespace. Got: ${JSON.stringify(sessionId)}.`,
@@ -104,14 +104,14 @@ export async function readSocketRef(refPath: string): Promise<string> {
   let raw: string;
   try {
     raw = await fs.readFile(refPath, "utf8");
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+  } catch (cause) {
+    if (cause instanceof Error && "code" in cause && cause.code === "ENOENT") {
       throw new Error(
         `No verifier socket breadcrumb at "${refPath}". The builder is either not ` +
           `running or hasn't bound its socket yet.`,
       );
     }
-    throw err;
+    throw cause;
   }
   const socketPath = raw.trim();
   if (!socketPath) {
@@ -133,8 +133,8 @@ export async function cleanup(socketPath: string, refPath: string): Promise<void
 async function safeUnlink(p: string): Promise<void> {
   try {
     await fs.unlink(p);
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") return;
-    throw err;
+  } catch (cause) {
+    if (cause instanceof Error && "code" in cause && cause.code === "ENOENT") return;
+    throw cause;
   }
 }

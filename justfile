@@ -12,6 +12,10 @@ default:
 typecheck:
     cd apps/verifier && pnpm run typecheck
 
+# Lint JavaScript and TypeScript with Oxlint and the vendored anti-slop rules
+lint:
+    pnpm run lint
+
 # Compile and run the Hermes decomposition/unit tests
 test:
     cd apps/verifier && pnpm test
@@ -22,11 +26,11 @@ bridge-check:
     #!/usr/bin/env bash
     set -euo pipefail
     python3 -m py_compile apps/hermes-async-bridge/hermes_async_bridge.py
-    PYTHON="${HERMES_PYTHON:-python3}"
-    "$PYTHON" -c "import importlib.util, sys; from pathlib import Path; path = Path('apps/hermes-async-bridge/hermes_async_bridge.py'); spec = importlib.util.spec_from_file_location('bridge_check', path); mod = importlib.util.module_from_spec(spec); sys.modules['bridge_check'] = mod; spec.loader.exec_module(mod); server = mod.create_mcp_server(host='127.0.0.1', port=18081, token='test-token'); print('FastMCP created', server.settings.host, server.settings.port, server.settings.streamable_http_path)"
+    bridge_python="${HERMES_PYTHON:-$HOME/.hermes/hermes-agent/venv/bin/python3}"
+    "$bridge_python" -c "import importlib.util, sys; from pathlib import Path; path = Path('apps/hermes-async-bridge/hermes_async_bridge.py'); spec = importlib.util.spec_from_file_location('bridge_check', path); mod = importlib.util.module_from_spec(spec); sys.modules['bridge_check'] = mod; spec.loader.exec_module(mod); server = mod.create_mcp_server(token='test-token'); app = server.streamable_http_app(host='127.0.0.1'); print('MCP server created', type(server).__name__, type(app).__name__)"
 
 # Run all local checks that do not require a live MCP client smoke test
-check: typecheck test bridge-check
+check: lint typecheck test bridge-check
 
 # Record a changeset for the next release (semver bump + changelog entry)
 changeset:

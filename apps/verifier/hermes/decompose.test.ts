@@ -9,6 +9,8 @@ import { readFileSync } from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, it } from "node:test";
+import Type, { type StaticParse } from "typebox";
+import { Parse } from "typebox/value";
 
 import { decomposeTranscript, _testing } from "./decompose.js";
 import { parseExportJsonl } from "./transcript.js";
@@ -32,11 +34,62 @@ const here = path.dirname(fileURLToPath(import.meta.url));
 const hermesSourceDir = path.resolve(here, "..", "..", "hermes");
 const fixturesDir = path.join(hermesSourceDir, "__fixtures__");
 
-function parseJson(text: string): unknown {
+const RequestBodySchema = Type.Object({
+	method: Type.String(),
+	id: Type.Optional(Type.Number()),
+	params: Type.Optional(
+		Type.Object({
+			name: Type.Optional(Type.String()),
+			arguments: Type.Optional(
+				Type.Object({
+					prompt: Type.Optional(Type.String()),
+					caller: Type.Optional(Type.String()),
+				}),
+			),
+		}),
+	),
+});
+const FixtureSchema = Type.Object({
+	transcript: Type.Object({
+		sessionId: Type.String(),
+		messages: Type.Array(
+			Type.Object({
+				role: Type.String(),
+				content: Type.Optional(Type.String()),
+				tool_calls: Type.Optional(
+					Type.Array(
+						Type.Object({
+							id: Type.String(),
+							name: Type.Optional(Type.String()),
+							function: Type.Optional(
+								Type.Object({
+									name: Type.Optional(Type.String()),
+									arguments: Type.Optional(Type.String()),
+								}),
+							),
+						}),
+					),
+				),
+				tool_call_id: Type.Optional(Type.String()),
+				name: Type.Optional(Type.String()),
+			}),
+		),
+	}),
+	originalPrompt: Type.String(),
+	expected: Type.Object({
+		userRequirements: Type.Array(Type.String()),
+		toolCallIds: Type.Array(Type.String()),
+		minToolExecutions: Type.Number(),
+	}),
+});
+
+function parseJson(text: string): StaticParse<typeof RequestBodySchema> {
 	try {
-		return JSON.parse(text) as unknown;
-	} catch (err) {
-		throw new Error(`Invalid test JSON: ${(err as Error).message}`);
+		return Parse(RequestBodySchema, JSON.parse(text));
+	} catch (cause) {
+		throw new Error(
+			`Invalid test JSON: ${cause instanceof Error ? cause.message : String(cause)}`,
+		);
 	}
 }
 
@@ -63,7 +116,7 @@ describe("hermes/poll", () => {
 					cost: null,
 				};
 			},
-		} as HermesMcpClient;
+			};
 
 		const outcome = await waitForHermes(client, "t1", 0, {
 			sleep: async () => {},
@@ -85,7 +138,7 @@ describe("hermes/poll", () => {
 				calls.push("result");
 				throw new Error("should not fetch result before terminal status");
 			},
-		} as unknown as HermesMcpClient;
+			};
 
 		const outcome = await waitForHermes(client, "t1", 0, {
 			sleep: async () => {},
@@ -104,14 +157,16 @@ describe("hermes/poll", () => {
 
 describe("hermes/client", () => {
 	it("uses Streamable HTTP JSON-RPC with bearer auth and session header", async () => {
-		const requests: Array<{ headers: Headers; body: Record<string, unknown> }> =
-			[];
+			const requests: Array<{
+				headers: Headers;
+				body: StaticParse<typeof RequestBodySchema>;
+			}> = [];
 		const fetchImpl = async (
 			_url: string | URL,
 			init?: RequestInit,
 		): Promise<Response> => {
 			const headers = new Headers(init?.headers);
-			const body = parseJson(String(init?.body)) as Record<string, unknown>;
+				const body = parseJson(String(init?.body));
 			requests.push({ headers, body });
 
 			if (body.method === "initialize") {
@@ -169,7 +224,7 @@ describe("hermes/client", () => {
 			_url: string | URL,
 			init?: RequestInit,
 		): Promise<Response> => {
-			const body = parseJson(String(init?.body)) as Record<string, unknown>;
+				const body = parseJson(String(init?.body));
 			if (body.method === "initialize") {
 				return new Response(
 					JSON.stringify({
@@ -213,7 +268,7 @@ describe("hermes/config", () => {
 	it("throws when required env vars missing", () => {
 		assert.throws(
 			() => loadHermesConfig({}),
-			(err: unknown) => err instanceof HermesConfigError,
+				(cause: unknown) => cause instanceof HermesConfigError,
 		);
 	});
 
@@ -270,20 +325,10 @@ describe("hermes/decompose", () => {
 			path.join(fixturesDir, "acceptance-and-tool-pairing.json"),
 			"utf8",
 		);
-		const fixture = parseJson(raw) as {
-			transcript: { sessionId: string; messages: unknown[] };
-			originalPrompt: string;
-			expected: {
-				userRequirements: string[];
-				toolCallIds: string[];
-				minToolExecutions: number;
-			};
-		};
+			const fixture = Parse(FixtureSchema, JSON.parse(raw));
 
 		const { claims } = decomposeTranscript({
-			transcript: fixture.transcript as Parameters<
-				typeof decomposeTranscript
-			>[0]["transcript"],
+				transcript: fixture.transcript,
 			originalPrompt: fixture.originalPrompt,
 		});
 

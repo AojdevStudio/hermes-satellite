@@ -135,7 +135,7 @@ export function decomposeTranscript(input: DecomposeInput): DecomposeOutput {
         embeddedEvidence = messages[resultIndex]?.content ?? "";
       }
 
-      claims.push({
+      const claim: AtomicClaim = {
         id: stableId(["tool", String(i), callId, toolName]),
         kind: "tool_execution",
         source: {
@@ -144,9 +144,10 @@ export function decomposeTranscript(input: DecomposeInput): DecomposeOutput {
           toolCallId: callId,
         },
         text: `${toolName}(${tc.function?.arguments ?? ""})`.trim(),
-        ...(embeddedEvidence !== undefined ? { embeddedEvidence } : {}),
         suggestedOracle: "tool_result",
-      });
+      };
+      if (embeddedEvidence !== undefined) claim.embeddedEvidence = embeddedEvidence;
+      claims.push(claim);
     }
   }
 

@@ -46,11 +46,11 @@ export async function loadDotEnv(cwd: string): Promise<LoadResult> {
   try {
     process.loadEnvFile(envPath);
     return { loaded: true, path: envPath };
-  } catch (err) {
+  } catch (cause) {
     return {
       loaded: false,
       path: envPath,
-      reason: `failed to parse: ${(err as Error).message}`,
+      reason: `failed to parse: ${cause instanceof Error ? cause.message : String(cause)}`,
     };
   }
 }

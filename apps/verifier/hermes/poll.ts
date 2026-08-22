@@ -51,7 +51,7 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
  * Always calls `hermes_result` once on completed/failed.
  */
 export async function waitForHermes(
-	client: HermesMcpClient,
+	client: Pick<HermesMcpClient, "status" | "result">,
 	taskId: TaskId,
 	submitTimeMs: number = Date.now(),
 	options: PollOptions = {},

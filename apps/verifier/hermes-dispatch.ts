@@ -31,8 +31,8 @@ interface HermesToolParams {
 	wait_for_result?: boolean;
 }
 
-function toolResult(text: string, details: Record<string, unknown> = {}) {
-	return { content: [{ type: "text" as const, text }], details };
+function toolResult<Details extends object>(text: string, details?: Details) {
+	return { content: [{ type: "text" as const, text }], details: details ?? {} };
 }
 
 async function clientFor(cwd: string): Promise<HermesMcpClient> {
@@ -45,7 +45,7 @@ function requireParam(
 	name: keyof HermesToolParams,
 ): string {
 	const value = params[name];
-	if (typeof value !== "string" || value.trim().length === 0) {
+	if (!value || value === true) {
 		throw new Error(`${String(name)} is required`);
 	}
 	return value.trim();
@@ -310,8 +310,11 @@ export default function hermesDispatchExtension(pi: ExtensionAPI): void {
 				`hermes-dispatch: MCP client ready (${client.url})`,
 				"info",
 			);
-		} catch (err) {
-			ctx.ui.notify(`hermes-dispatch: ${(err as Error).message}`, "error");
+			} catch (cause) {
+				ctx.ui.notify(
+					`hermes-dispatch: ${cause instanceof Error ? cause.message : String(cause)}`,
+					"error",
+				);
 		}
 	});
 }

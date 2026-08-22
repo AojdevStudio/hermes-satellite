@@ -67,7 +67,7 @@ export function renderSatelliteVerifyPrompt(
   vars: Partial<SatelliteVerifyPromptVars>,
   template: string,
 ): string {
-  const merged: Record<string, string> = { ...SATELLITE_VERIFY_DEFAULTS, ...vars };
+  const merged = { ...SATELLITE_VERIFY_DEFAULTS, ...vars } satisfies SatelliteVerifyPromptVars;
   return templateBody(template, merged);
 }
 

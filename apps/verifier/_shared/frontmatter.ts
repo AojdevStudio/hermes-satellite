@@ -16,6 +16,8 @@
  */
 
 import { parseFrontmatter } from "@mariozechner/pi-coding-agent";
+import Type from "typebox";
+import { Errors, Parse } from "typebox/value";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -34,6 +36,18 @@ export interface ParsedVerifierPersona {
   body: string;
 }
 
+const FrontmatterSchema = Type.Object({
+  name: Type.String({ minLength: 1 }),
+  description: Type.String({ minLength: 1 }),
+  tools: Type.String({ minLength: 1 }),
+  model: Type.String({ minLength: 1 }),
+  domain: Type.String({ minLength: 1 }),
+  max_loops: Type.Optional(Type.Union([Type.Number(), Type.Null()])),
+  verification_focus: Type.Optional(
+    Type.Union([Type.Array(Type.String()), Type.Null()]),
+  ),
+});
+
 // ─── Parser ──────────────────────────────────────────────────────────────────
 
 /**
@@ -47,28 +61,33 @@ export interface ParsedVerifierPersona {
  * spawn time, where it has access to the Pi runtime tool registry.
  */
 export function parseVerifierPersona(content: string): ParsedVerifierPersona {
-  const { frontmatter: raw, body } = parseFrontmatter<Record<string, unknown>>(content);
+  const { frontmatter: raw, body } = parseFrontmatter(content);
 
-  // Required scalars.
-  const name = requireString(raw, "name");
-  const description = requireString(raw, "description");
-  const tools = requireString(raw, "tools");
-  const model = requireString(raw, "model");
-  const domain = requireString(raw, "domain");
+  const [issue] = Errors(FrontmatterSchema, raw);
+  if (issue) {
+    const field = issue.instancePath.slice(1);
+    throw new Error(
+      `Verifier persona frontmatter${field ? ` field "${field}"` : ""}: ${issue.message}.`,
+    );
+  }
 
-  // Optional fields.
-  const max_loops = optionalNumber(raw, "max_loops");
-  const verification_focus = optionalStringArray(raw, "verification_focus");
-
+  const parsed = Parse(FrontmatterSchema, raw);
   const frontmatter: VerifierFrontmatter = {
-    name,
-    description,
-    tools,
-    model,
-    domain,
-    ...(max_loops !== undefined ? { max_loops } : {}),
-    ...(verification_focus !== undefined ? { verification_focus } : {}),
+    name: parsed.name,
+    description: parsed.description,
+    tools: parsed.tools,
+    model: parsed.model,
+    domain: parsed.domain,
   };
+  if (parsed.max_loops !== undefined && parsed.max_loops !== null) {
+    frontmatter.max_loops = parsed.max_loops;
+  }
+  if (
+    parsed.verification_focus !== undefined &&
+    parsed.verification_focus !== null
+  ) {
+    frontmatter.verification_focus = parsed.verification_focus;
+  }
 
   return { frontmatter, body };
 }
@@ -89,63 +108,14 @@ export function parseVerifierPersona(content: string): ParsedVerifierPersona {
  */
 export function templateBody(body: string, vars: Record<string, string>): string {
   let out = body;
-  for (const key of Object.keys(vars)) {
+  for (const [key, value] of Object.entries(vars)) {
     if (!/^[A-Z][A-Z0-9_]*$/.test(key)) {
       throw new Error(
         `templateBody: variable name "${key}" must be UPPER_SNAKE_CASE (matches /^[A-Z][A-Z0-9_]*$/).`,
       );
     }
     const pattern = new RegExp(`<${key}>`, "g");
-    out = out.replace(pattern, vars[key]!);
+    out = out.replace(pattern, value);
   }
   return out;
-}
-
-// ─── Internal helpers ────────────────────────────────────────────────────────
-
-function requireString(obj: Record<string, unknown>, fieldPath: string): string {
-  const v = lookup(obj, fieldPath);
-  if (typeof v !== "string" || v.length === 0) {
-    throw new Error(
-      `Verifier persona frontmatter: required field "${fieldPath}" is missing or not a non-empty string.`,
-    );
-  }
-  return v;
-}
-
-function optionalNumber(obj: Record<string, unknown>, fieldPath: string): number | undefined {
-  const v = lookup(obj, fieldPath);
-  if (v === undefined || v === null) return undefined;
-  if (typeof v !== "number" || !Number.isFinite(v)) {
-    throw new Error(
-      `Verifier persona frontmatter: optional field "${fieldPath}" must be a finite number if present. Got: ${JSON.stringify(v)}.`,
-    );
-  }
-  return v;
-}
-
-function optionalStringArray(obj: Record<string, unknown>, fieldPath: string): string[] | undefined {
-  const v = lookup(obj, fieldPath);
-  if (v === undefined || v === null) return undefined;
-  if (!Array.isArray(v) || !v.every((x) => typeof x === "string")) {
-    throw new Error(
-      `Verifier persona frontmatter: optional field "${fieldPath}" must be an array of strings if present.`,
-    );
-  }
-  return v as string[];
-}
-
-/**
- * Tiny dotted-path lookup so we can address nested fields with the same
- * error-message machinery as top-level scalars. Only used by the `require*`
- * helpers, never user-facing.
- */
-function lookup(obj: Record<string, unknown>, fieldPath: string): unknown {
-  const parts = fieldPath.split(".");
-  let cur: unknown = obj;
-  for (const part of parts) {
-    if (typeof cur !== "object" || cur === null) return undefined;
-    cur = (cur as Record<string, unknown>)[part];
-  }
-  return cur;
 }

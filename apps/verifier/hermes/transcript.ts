@@ -6,9 +6,40 @@
  */
 
 import { readFile } from "node:fs/promises";
+import Type, { type StaticParse } from "typebox";
+import { Parse } from "typebox/value";
 
 import type { HermesMcpClient } from "./client.js";
 import type { EvidenceTier, HermesExportTranscript, HermesSessionId } from "./types.js";
+
+const StringSchema = Type.String();
+const ToolCallSchema = Type.Object({
+  id: Type.String(),
+  name: Type.Optional(Type.String()),
+  function: Type.Optional(
+    Type.Object({
+      name: Type.Optional(Type.String()),
+      arguments: Type.Optional(Type.String()),
+    }),
+  ),
+});
+const MessageRowSchema = Type.Object({
+  role: Type.Optional(Type.String()),
+  content: Type.Optional(Type.String()),
+  tool_calls: Type.Optional(Type.Array(ToolCallSchema)),
+  tool_call_id: Type.Optional(Type.String()),
+  name: Type.Optional(Type.String()),
+  session_id: Type.Optional(Type.String()),
+});
+const ExportObjectSchema = Type.Object({
+  sessionId: Type.Optional(Type.String()),
+  session_id: Type.Optional(Type.String()),
+  id: Type.Optional(Type.String()),
+  messages: Type.Optional(Type.Array(MessageRowSchema)),
+});
+
+type HermesExportMessageRow = StaticParse<typeof MessageRowSchema>;
+type HermesExportObject = StaticParse<typeof ExportObjectSchema>;
 
 export interface TranscriptFetchOptions {
   sessionId: HermesSessionId;
@@ -48,11 +79,11 @@ export async function fetchT2Transcript(
   try {
     const rawText = await opts.client.transcript(opts.sessionId, opts.signal);
     return { tier: "T2", transcript: parseExportJsonl(rawText), rawText };
-  } catch (err) {
+  } catch (cause) {
     const summary = await fetchT1Summary(opts.sessionId, opts.client, opts.signal);
     return {
       ...summary,
-      rawText: `${summary.rawText ?? ""}\n\nT2 unavailable: ${(err as Error).message}`.trim(),
+      rawText: `${summary.rawText ?? ""}\n\nT2 unavailable: ${cause instanceof Error ? cause.message : String(cause)}`.trim(),
     };
   }
 }
@@ -67,7 +98,12 @@ export async function fetchT1Summary(
     throw new Error("fetchT1Summary: provide MCP client with hermes_sessions");
   }
   const raw = await client.sessions(sessionId, signal);
-  const rawText = typeof raw === "string" ? raw : JSON.stringify(raw, null, 2);
+  let rawText: string;
+  try {
+    rawText = Parse(StringSchema, raw);
+  } catch {
+    rawText = JSON.stringify(raw, null, 2) ?? "";
+  }
   return { tier: "T1", transcript: null, rawText };
 }
 
@@ -83,14 +119,15 @@ export function parseExportJsonl(raw: string): HermesExportTranscript {
 
   // Single session object (pretty-printed export) or one-json-object-per-line.
   if (trimmed.startsWith("{") && !trimmed.includes("\n{")) {
-    const parsed = JSON.parse(trimmed) as Record<string, unknown>;
+    const parsed = Parse(ExportObjectSchema, JSON.parse(trimmed));
     return normalizeExportObject(parsed);
   }
 
   const lines = trimmed.split(/\r?\n/).filter((l) => l.trim().length > 0);
-  const messages = lines.map((line) => JSON.parse(line) as HermesExportMessageRow);
-  const sessionId =
-    typeof messages[0]?.session_id === "string" ? messages[0].session_id : "";
+  const messages = lines.map((line) =>
+    Parse(MessageRowSchema, JSON.parse(line)),
+  );
+  const sessionId = messages[0]?.session_id ?? "";
 
   return {
     sessionId,
@@ -98,38 +135,24 @@ export function parseExportJsonl(raw: string): HermesExportTranscript {
   };
 }
 
-interface HermesExportMessageRow {
-  role?: string;
-  content?: string;
-  tool_calls?: HermesExportTranscript["messages"][0]["tool_calls"];
-  tool_call_id?: string;
-  name?: string;
-  session_id?: string;
-}
-
-function normalizeExportObject(obj: Record<string, unknown>): HermesExportTranscript {
+function normalizeExportObject(obj: HermesExportObject): HermesExportTranscript {
   const sessionId =
-    typeof obj.sessionId === "string"
-      ? obj.sessionId
-      : typeof obj.session_id === "string"
-        ? obj.session_id
-        : typeof obj.id === "string"
-          ? obj.id
-          : "";
+    obj.sessionId ?? obj.session_id ?? obj.id ?? "";
 
-  const rawMessages = Array.isArray(obj.messages) ? obj.messages : [];
+  const rawMessages = obj.messages ?? [];
   return {
     sessionId,
-    messages: rawMessages.map((m) => normalizeMessageRow(m as HermesExportMessageRow)),
+    messages: rawMessages.map(normalizeMessageRow),
   };
 }
 
 function normalizeMessageRow(row: HermesExportMessageRow): HermesExportTranscript["messages"][0] {
-  return {
+  const message: HermesExportTranscript["messages"][0] = {
     role: row.role ?? "unknown",
-    ...(row.content !== undefined ? { content: row.content } : {}),
-    ...(row.tool_calls !== undefined ? { tool_calls: row.tool_calls } : {}),
-    ...(row.tool_call_id !== undefined ? { tool_call_id: row.tool_call_id } : {}),
-    ...(row.name !== undefined ? { name: row.name } : {}),
   };
+  if (row.content !== undefined) message.content = row.content;
+  if (row.tool_calls !== undefined) message.tool_calls = row.tool_calls;
+  if (row.tool_call_id !== undefined) message.tool_call_id = row.tool_call_id;
+  if (row.name !== undefined) message.name = row.name;
+  return message;
 }

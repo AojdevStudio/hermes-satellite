@@ -11,6 +11,7 @@
  */
 
 import { Database } from "bun:sqlite";
+import { stripVTControlCharacters } from "node:util";
 
 // ── environment ────────────────────────────────────────────────────────────
 const HOME = process.env.HOME ?? "";
@@ -27,10 +28,10 @@ const c = (code: string) => (s: string) => (tty ? `\x1b[${code}m${s}\x1b[0m` : s
 const red = c("31"), grn = c("32"), ylw = c("33"), cyn = c("36"), mag = c("35");
 const bold = c("1"), dim = c("2"), inv = c("7;31");
 
-const GLYPH: Record<string, string> = {
+const GLYPH = {
   running: ylw("●"), pending: cyn("◌"), completed: grn("✓"),
   failed: red("✗"), cancelled: mag("⊘"),
-};
+} satisfies Record<string, string>;
 const paintStatus = (s: string) => `${GLYPH[s] ?? " "} ${statusColor(s)}`;
 function statusColor(s: string): string {
   if (s === "running") return ylw(s);
@@ -42,11 +43,10 @@ function statusColor(s: string): string {
 }
 
 // ── formatting ─────────────────────────────────────────────────────────────
-const ANSI_RE = /\x1b\[[0-9;]*m/g;
 const width = (s: string) => {
   // ansi-stripped display width; CJK/emoji counted as 2
   let w = 0;
-  for (const ch of s.replace(ANSI_RE, "")) {
+  for (const ch of stripVTControlCharacters(s)) {
     const cp = ch.codePointAt(0)!;
     w += cp >= 0x1100 && (cp <= 0x115f || (cp >= 0x2e80 && cp <= 0xa4cf) ||
       (cp >= 0xac00 && cp <= 0xd7a3) || (cp >= 0xf900 && cp <= 0xfaff) ||
@@ -61,7 +61,7 @@ const pad = (s: string, n: number, right = false) => {
 const trunc = (s: string, n: number) => {
   if (width(s) <= n) return s;
   let out = "";
-  for (const ch of s.replace(ANSI_RE, "")) {
+  for (const ch of stripVTControlCharacters(s)) {
     if (width(out + ch) > n - 1) break;
     out += ch;
   }
@@ -70,9 +70,9 @@ const trunc = (s: string, n: number) => {
 const num = (v: number | null | undefined) => (v == null ? "-" : v.toLocaleString("en-US"));
 const usd = (v: number | null | undefined) =>
   v == null || v === 0 ? dim("unknown") : `$${v.toFixed(4)}`;
-const debugFailure = (context: string, err: unknown) => {
+const debugFailure = (context: string, cause: unknown) => {
   if (!process.env.HST_DEBUG) return;
-  const reason = err instanceof Error ? err.message : String(err);
+  const reason = cause instanceof Error ? cause.message : String(cause);
   console.error(dim(`hst debug: ${context}: ${reason}`));
 };
 const relTime = (epoch: number | null) => {
@@ -232,7 +232,9 @@ async function gists(tasks: Task[]): Promise<Record<string, string>> {
     const out = JSON.parse(json.choices[0].message.content);
     const ids = new Set(missing.map((t) => t.task_id));
     for (const [id, gist] of Object.entries(out)) {
-      if (ids.has(id) && typeof gist === "string") cache[id] = gist;
+      if (ids.has(id) && Object.prototype.toString.call(gist) === "[object String]") {
+        cache[id] = String(gist);
+      }
     }
     await Bun.write(cachePath, JSON.stringify(cache, null, 1));
   } catch (err) { debugFailure("gist request failed", err); }
@@ -402,7 +404,7 @@ async function cmdWatch() {
   const prefix = argv[1];
   const t = prefix ? resolveTask(d, prefix) : null;
   banner(t ? `watch ${t.task_id}` : "watch (all bridge events)");
-  let last = (d.query<any, []>(`SELECT COALESCE(MAX(id),0) m FROM mcp_events`).get()?.m ?? 0) as number;
+  let last = d.query<{ m: number }, []>(`SELECT COALESCE(MAX(id),0) m FROM mcp_events`).get()?.m ?? 0;
   console.log(dim("  polling every 5s — Ctrl-C to stop\n"));
   // ponytail: 5s poll by rowid; the bridge has no pubsub to subscribe to.
   while (true) {

@@ -220,15 +220,6 @@ function formatPhase(phase: Phase): string {
   }
 }
 
-function ageMs(timestamp: number): number {
-  if (!timestamp) return 0;
-  return Math.max(0, Date.now() - timestamp);
-}
-
-function shortSid(sid: string): string {
-  return sid.length <= 8 ? sid : `${sid.slice(0, 8)}...`;
-}
-
 /**
  * Pick a background color (ANSI 256) for the verifier status bar based on the
  * confidence grade from the most recent Report. Falls back to purple while
@@ -265,6 +256,24 @@ function bgForConfidence(confidence: Confidence | null, phase: Phase): string {
 
 // ─── VerifierStatusBar ───────────────────────────────────────────────────────
 
+interface EditorKeybindings {
+  matches(data: string, action: string): boolean;
+}
+
+function editorKeybindings(editor: VerifierStatusBar): EditorKeybindings {
+  const keybindings = Object.getOwnPropertyDescriptor(editor, "keybindings")?.value;
+  if (
+    !(keybindings instanceof Object) ||
+    !("matches" in keybindings) ||
+    !(keybindings.matches instanceof Function)
+  ) {
+    throw new Error("CustomEditor keybindings are unavailable");
+  }
+  return {
+    matches: (data, action) => Boolean(keybindings.matches(data, action)),
+  };
+}
+
 class VerifierStatusBar extends CustomEditor {
   override render(width: number): string[] {
     // Minimal bar — persona name (so it's obvious which agent is loaded),
@@ -297,21 +306,21 @@ class VerifierStatusBar extends CustomEditor {
     // reach through `unknown`/`any` here to use it the same way the reference
     // editor does. This is intentional: we are deliberately mirroring the
     // shortcut-preservation logic from `full-bar-editor.ts` verbatim.
-    const self = this as unknown as {
-      keybindings: { matches(data: string, action: string): boolean };
-    };
+    const keybindings = editorKeybindings(this);
+    const keyMatches = (action: string): boolean =>
+      keybindings.matches(data, action);
 
     // Preserve extension shortcuts.
     if (this.onExtensionShortcut?.(data)) return;
 
     // Preserve paste-image shortcut if configured.
-    if (self.keybindings.matches(data, "app.clipboard.pasteImage")) {
+    if (keyMatches("app.clipboard.pasteImage")) {
       this.onPasteImage?.();
       return;
     }
 
     // Preserve Escape / interrupt.
-    if (self.keybindings.matches(data, "app.interrupt")) {
+    if (keyMatches("app.interrupt")) {
       if (!this.isShowingAutocomplete()) {
         const handler = this.onEscape ?? this.actionHandlers.get("app.interrupt");
         if (handler) {
@@ -324,7 +333,7 @@ class VerifierStatusBar extends CustomEditor {
     }
 
     // Preserve Ctrl+D / exit when empty.
-    if (self.keybindings.matches(data, "app.exit")) {
+    if (keyMatches("app.exit")) {
       if (this.getText().length === 0) {
         const handler = this.onCtrlD ?? this.actionHandlers.get("app.exit");
         if (handler) handler();
@@ -337,7 +346,7 @@ class VerifierStatusBar extends CustomEditor {
       if (
         action !== "app.interrupt" &&
         action !== "app.exit" &&
-        self.keybindings.matches(data, action)
+        keyMatches(action)
       ) {
         handler();
         return;
@@ -368,12 +377,11 @@ export default function verifierExtension(pi: ExtensionAPI): void {
   // received `event` envelope. Single-line, faded, ANSI-aware truncation
   // is handled by `Text` itself.
   pi.registerMessageRenderer("builder-event", (message, _options, theme) => {
-    const content =
-      typeof message.content === "string"
+    const content = Array.isArray(message.content)
         ? message.content
-        : message.content
             .map((c) => (c.type === "text" ? c.text : ""))
-            .join("");
+            .join("")
+        : message.content;
     return new Text(theme.fg("muted", content), 0, 0);
   });
 
@@ -446,13 +454,13 @@ export default function verifierExtension(pi: ExtensionAPI): void {
       try {
         assertDirection(envelope, "verifier-to-builder");
         state.parentConn.write(encodeEnvelope(envelope));
-      } catch (err) {
+      } catch (cause) {
         state.pendingPromptAcks.delete(correlationId);
         return {
           content: [
             {
               type: "text",
-              text: `✗ verifier_prompt failed to send: ${(err as Error).message}`,
+              text: `✗ verifier_prompt failed to send: ${errorMessage(cause)}`,
             },
           ],
           details: { ok: false, reason: "write_failed", correlationId },
@@ -475,10 +483,10 @@ export default function verifierExtension(pi: ExtensionAPI): void {
           ],
           details: { correlationId, ok: ack.ok, error: ack.error },
         };
-      } catch (err) {
+      } catch (cause) {
         return {
           content: [
-            { type: "text", text: `✗ verifier_prompt failed: ${(err as Error).message}` },
+            { type: "text", text: `✗ verifier_prompt failed: ${errorMessage(cause)}` },
           ],
           details: { ok: false, reason: "timeout", correlationId },
         };
@@ -555,9 +563,9 @@ export default function verifierExtension(pi: ExtensionAPI): void {
     try {
       assertDirection(envelope, "verifier-to-builder");
       state.parentConn.write(encodeEnvelope(envelope));
-    } catch (err) {
+    } catch (cause) {
       ctx.ui.notify(
-        `verifier: failed to send report envelope: ${(err as Error).message}`,
+        `verifier: failed to send report envelope: ${errorMessage(cause)}`,
         "error",
       );
     }
@@ -583,14 +591,14 @@ export default function verifierExtension(pi: ExtensionAPI): void {
 
     const builderSession = pi.getFlag("builder-session");
     const agentPath = pi.getFlag("agent");
-    if (typeof builderSession !== "string" || builderSession.length === 0) {
+    if (!builderSession || builderSession === true) {
       ctx.ui.notify(
         "verifier: missing required flags --builder-session and --agent",
         "error",
       );
       return;
     }
-    if (typeof agentPath !== "string" || agentPath.length === 0) {
+    if (!agentPath || agentPath === true) {
       ctx.ui.notify(
         "verifier: missing required flags --builder-session and --agent",
         "error",
@@ -611,9 +619,9 @@ export default function verifierExtension(pi: ExtensionAPI): void {
       const personaContent = readFileSync(state.agentPath, "utf-8");
       const persona = parseVerifierPersona(personaContent);
       maxLoops = persona.frontmatter.max_loops ?? 3;
-    } catch (err) {
+    } catch (cause) {
       ctx.ui.notify(
-        `verifier: failed to load persona at ${state.agentPath}: ${(err as Error).message}`,
+        `verifier: failed to load persona at ${state.agentPath}: ${errorMessage(cause)}`,
         "error",
       );
       return;
@@ -637,9 +645,9 @@ export default function verifierExtension(pi: ExtensionAPI): void {
     try {
       const { socketPath } = resolveSocketPath(state.builderSessionId, ctx.cwd);
       state.socketPath = socketPath;
-    } catch (err) {
+    } catch (cause) {
       ctx.ui.notify(
-        `verifier: socket path resolution failed: ${(err as Error).message}`,
+        `verifier: socket path resolution failed: ${errorMessage(cause)}`,
         "error",
       );
       return;
@@ -674,9 +682,9 @@ function connectToParent(pi: ExtensionAPI, ctx: ExtensionContext): void {
     try {
       assertDirection(hello, "verifier-to-builder");
       conn.write(encodeEnvelope(hello));
-    } catch (err) {
+    } catch (cause) {
       ctx.ui.notify(
-        `verifier: failed to send hello: ${(err as Error).message}`,
+        `verifier: failed to send hello: ${errorMessage(cause)}`,
         "error",
       );
     }
@@ -686,10 +694,10 @@ function connectToParent(pi: ExtensionAPI, ctx: ExtensionContext): void {
     startPingInterval(ctx);
   });
 
-  conn.on("error", (err) => {
+  conn.on("error", (cause) => {
     if (state.shuttingDown) return;
     ctx.ui.notify(
-      `verifier: socket error: ${(err as Error).message}`,
+      `verifier: socket error: ${cause.message}`,
       "error",
     );
   });
@@ -718,17 +726,17 @@ function connectToParent(pi: ExtensionAPI, ctx: ExtensionContext): void {
       for await (const envelope of readEnvelopes(conn)) {
         try {
           dispatchEnvelope(envelope, pi, ctx);
-        } catch (err) {
+        } catch (cause) {
           ctx.ui.notify(
-            `verifier: dispatch error: ${(err as Error).message}`,
+            `verifier: dispatch error: ${errorMessage(cause)}`,
             "error",
           );
         }
       }
-    } catch (err) {
+    } catch (cause) {
       if (state.shuttingDown) return;
       ctx.ui.notify(
-        `verifier: read loop ended: ${(err as Error).message}`,
+        `verifier: read loop ended: ${errorMessage(cause)}`,
         "warning",
       );
     }
@@ -765,9 +773,9 @@ function dispatchEnvelope(envelope: Envelope, pi: ExtensionAPI, ctx: ExtensionCo
       try {
         assertDirection(pong, "verifier-to-builder");
         state.parentConn?.write(encodeEnvelope(pong));
-      } catch (err) {
+      } catch (cause) {
         ctx.ui.notify(
-          `verifier: failed to pong: ${(err as Error).message}`,
+          `verifier: failed to pong: ${errorMessage(cause)}`,
           "error",
         );
       }
@@ -857,9 +865,9 @@ function handleBuilderEvent(
       let template: string;
       try {
         template = readFileSync(promptPath, "utf-8");
-      } catch (err) {
+      } catch (cause) {
         ctx.ui.notify(
-          `verifier: failed to read ${promptPath}: ${(err as Error).message}`,
+          `verifier: failed to read ${promptPath}: ${errorMessage(cause)}`,
           "error",
         );
         return;
@@ -880,9 +888,9 @@ function handleBuilderEvent(
         // followUp, Pi appends the new user message to its queue and runs
         // it as soon as the current agent run completes. Order is preserved.
         pi.sendUserMessage(rendered, { deliverAs: "followUp" });
-      } catch (err) {
+      } catch (cause) {
         ctx.ui.notify(
-          `verifier: sendUserMessage failed: ${(err as Error).message}`,
+          `verifier: sendUserMessage failed: ${errorMessage(cause)}`,
           "error",
         );
       }
@@ -1034,23 +1042,39 @@ function parseReport(raw: string, _turnIndex: number): ParsedReport | null {
   const reportBody = raw.slice(reportIdx);
 
   // STATUS line — case-insensitive, anywhere on its own line in the block.
-  const statusMatch = reportBody.match(/^\s*STATUS\s*:\s*(verified|failed|unsure)\b/im);
-  if (!statusMatch) return null;
-  const status = statusMatch[1]!.toLowerCase() as ParsedReport["status"];
+  const status = reportBody
+    .match(/^\s*STATUS\s*:\s*(verified|failed|unsure)\b/im)?.[1]
+    ?.toLowerCase();
+  if (status !== "verified" && status !== "failed" && status !== "unsure") {
+    return null;
+  }
 
   // CONFIDENCE is required. Do not launder missing confidence into a
   // status-derived default; omission means the Report contract was not met.
-  const confMatch = reportBody.match(/^\s*CONFIDENCE\s*:\s*(perfect|verified|partial|feedback|failed)\b/im);
-  if (!confMatch) return null;
+  const confidenceValue = reportBody
+    .match(/^\s*CONFIDENCE\s*:\s*(perfect|verified|partial|feedback|failed)\b/im)?.[1]
+    ?.toLowerCase();
+  if (
+    confidenceValue !== "perfect" &&
+    confidenceValue !== "verified" &&
+    confidenceValue !== "partial" &&
+    confidenceValue !== "feedback" &&
+    confidenceValue !== "failed"
+  ) return null;
 
   // EVIDENCE_TIER is required so satellite reports can be deterministically
   // capped by available evidence. Local verifier personas also emit this.
-  const tierMatch = reportBody.match(/^\s*EVIDENCE_TIER\s*:\s*(T0|T1|T2|T3)\b/im);
-  if (!tierMatch) return null;
-
-  const evidenceTier = tierMatch[1]!.toUpperCase() as "T0" | "T1" | "T2" | "T3";
+  const evidenceTier = reportBody
+    .match(/^\s*EVIDENCE_TIER\s*:\s*(T0|T1|T2|T3)\b/im)?.[1]
+    ?.toUpperCase();
+  if (
+    evidenceTier !== "T0" &&
+    evidenceTier !== "T1" &&
+    evidenceTier !== "T2" &&
+    evidenceTier !== "T3"
+  ) return null;
   const confidence = clampConfidenceToEvidenceTier(
-    confMatch[1]!.toLowerCase() as Confidence,
+    confidenceValue,
     evidenceTier,
   );
 
@@ -1089,23 +1113,14 @@ function clampConfidenceToEvidenceTier(
   confidence: Confidence,
   tier: "T0" | "T1" | "T2" | "T3",
 ): Confidence {
-  const rank: Record<Confidence, number> = {
-    failed: 0,
-    feedback: 1,
-    partial: 2,
-    verified: 3,
-    perfect: 4,
-  };
-  const byRank = Object.fromEntries(
-    Object.entries(rank).map(([name, value]) => [value, name]),
-  ) as Record<number, Confidence>;
-  const cap: Record<typeof tier, Confidence> = {
+  const order = ["failed", "feedback", "partial", "verified", "perfect"] as const;
+  const cap = {
     T0: "partial",
     T1: "verified",
     T2: "perfect",
     T3: "perfect",
-  };
-  return byRank[Math.min(rank[confidence], rank[cap[tier]])]!;
+  } satisfies Record<typeof tier, Confidence>;
+  return order[Math.min(order.indexOf(confidence), order.indexOf(cap[tier]))] ?? "failed";
 }
 
 function escapeRegex(s: string): string {
@@ -1119,20 +1134,18 @@ function escapeRegex(s: string): string {
  * care about TextContent blocks — thinking and tool calls aren't part of
  * the user-facing "## Report" surface.
  */
-function extractAssistantText(content: unknown): string {
-  if (typeof content === "string") return content;
-  if (!Array.isArray(content)) return "";
-  const parts: string[] = [];
-  for (const block of content) {
-    if (
-      block &&
-      typeof block === "object" &&
-      "type" in block &&
-      (block as { type: unknown }).type === "text" &&
-      typeof (block as { text?: unknown }).text === "string"
-    ) {
-      parts.push((block as { text: string }).text);
-    }
-  }
-  return parts.join("\n");
+interface AssistantContentBlock {
+  type: string;
+  text?: string;
+}
+
+function extractAssistantText(content: readonly AssistantContentBlock[]): string {
+  return content
+    .flatMap((block) => (block.type === "text" && block.text ? [block.text] : []))
+    .join("\n");
+}
+
+function errorMessage(cause: unknown): string {
+  if (cause instanceof Error) return cause.message;
+  return JSON.stringify(cause) ?? String(cause);
 }

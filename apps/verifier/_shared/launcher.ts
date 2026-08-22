@@ -463,8 +463,9 @@ async function verifierAlreadyRunning(tmuxSession: string): Promise<boolean> {
 async function tmuxSwallowMissing(args: string[]): Promise<void> {
   try {
     await execFileP("tmux", args);
-  } catch (err) {
-    const stderr = ((err as { stderr?: string }).stderr ?? "").toLowerCase();
+  } catch (cause) {
+    const stderr =
+      cause instanceof Error && "stderr" in cause ? String(cause.stderr).toLowerCase() : "";
     if (
       stderr.includes("can't find") ||
       stderr.includes("no such") ||
@@ -474,7 +475,7 @@ async function tmuxSwallowMissing(args: string[]): Promise<void> {
     ) {
       return;
     }
-    throw err;
+    throw cause;
   }
 }
 

@@ -96,16 +96,18 @@ export function parseSatelliteVerifyReport(raw: string): SatelliteVerifyReport |
   const reportIdx = raw.search(/^##\s+Report\s*$/m);
   if (reportIdx === -1) return null;
   const body = raw.slice(reportIdx);
-  const status = body.match(/^\s*STATUS\s*:\s*(verified|failed|unsure)\b/im)?.[1]?.toLowerCase() as
-    | SatelliteVerifyReport["status"]
-    | undefined;
-  const confidence = body.match(/^\s*CONFIDENCE\s*:\s*(perfect|verified|partial|feedback|failed)\b/im)?.[1]?.toLowerCase() as
-    | Confidence
-    | undefined;
-  const evidenceTier = body.match(/^\s*EVIDENCE_TIER\s*:\s*(T0|T1|T2|T3)\b/im)?.[1]?.toUpperCase() as
-    | VerifyTriggerContext["evidenceTier"]
-    | undefined;
-  if (!status || !confidence || !evidenceTier) return null;
+  const status = body.match(/^\s*STATUS\s*:\s*(verified|failed|unsure)\b/im)?.[1]?.toLowerCase();
+  const confidence = body.match(/^\s*CONFIDENCE\s*:\s*(perfect|verified|partial|feedback|failed)\b/im)?.[1]?.toLowerCase();
+  const evidenceTier = body.match(/^\s*EVIDENCE_TIER\s*:\s*(T0|T1|T2|T3)\b/im)?.[1]?.toUpperCase();
+  if (status !== "verified" && status !== "failed" && status !== "unsure") return null;
+  if (
+    confidence !== "perfect" &&
+    confidence !== "verified" &&
+    confidence !== "partial" &&
+    confidence !== "feedback" &&
+    confidence !== "failed"
+  ) return null;
+  if (evidenceTier !== "T0" && evidenceTier !== "T1" && evidenceTier !== "T2" && evidenceTier !== "T3") return null;
 
   const feedbackMatch = body.match(
     /^###\s+What feedback did you give\?\s*$([\s\S]*?)(?=^###\s|^##\s|(?![\s\S]))/im,

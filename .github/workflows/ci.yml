@@ -42,8 +42,8 @@ jobs:
         with:
           bun-version: 1.x
 
-      - name: Typecheck and tests
-        run: just typecheck test
+      - name: Lint, typecheck, and tests
+        run: just lint typecheck test
 
       - name: Bridge syntax check
         run: python3 -m py_compile apps/hermes-async-bridge/hermes_async_bridge.py

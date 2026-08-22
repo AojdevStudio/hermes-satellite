@@ -39,11 +39,12 @@ export function loadHermesConfig(env: NodeJS.ProcessEnv = process.env): HermesCo
     throw new HermesConfigError("HERMES_MCP_TOKEN is required (bridge bearer token)");
   }
 
-  return {
+  const config: HermesConfig = {
     mcpUrl,
     mcpToken,
-    ...(callbackUrl ? { callbackUrl } : {}),
   };
+  if (callbackUrl) config.callbackUrl = callbackUrl;
+  return config;
 }
 
 /** True when both required Hermes env vars are set (non-throwing probe). */

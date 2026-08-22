@@ -53,7 +53,7 @@ import { cleanup, ensureSocketDir, resolveSocketPath } from "./_shared/socket-pa
 
 // ─── Module-local state (closure-captured, not global) ───────────────────────
 
-type ConnectionPhase = "idle" | "disconnected" | "spawning" | "connected" | "error";
+type ConnectionPhase = FooterConnectionPhase;
 
 interface VerifiableState {
   phase: ConnectionPhase;
@@ -79,8 +79,8 @@ interface VerifiableState {
   lastUserPrompt: string;
   /** Line count at before_agent_start — start line of this turn's slice in the session JSONL. */
   turnStartLine: number;
-  uncaughtListener: ((err: unknown) => void) | null;
-  unhandledListener: ((reason: unknown) => void) | null;
+  uncaughtListener: ((cause: unknown) => void) | null;
+  unhandledListener: ((cause: unknown) => void) | null;
   /**
    * Bound `tui.requestRender` captured from the editor factory. Pi only
    * redraws on input by default — without nudging it, phase changes (e.g.
@@ -216,7 +216,7 @@ export default function verifiable(pi: ExtensionAPI): void {
             theme,
             kb,
             {
-              getPhase: () => state.phase as FooterConnectionPhase,
+              getPhase: () => state.phase,
               getSessionId: () => state.sessionId,
             },
             ctx,
@@ -259,7 +259,7 @@ export default function verifiable(pi: ExtensionAPI): void {
     // forward it to the verifier on `start`/`stop`. The verifier uses this
     // to ground each verification cycle in the original ask without parsing
     // the session JSONL just to extract it.
-    if (event.source !== "extension" && typeof event.text === "string") {
+    if (event.source !== "extension" && event.text) {
       state.lastUserPrompt = event.text;
     }
     return { action: "continue" };
@@ -361,10 +361,7 @@ export default function verifiable(pi: ExtensionAPI): void {
       // persona name (no .md, no path); we resolve it under
       // .pi/verifier/agents/ relative to the project cwd.
       const agentNameRaw = pi.getFlag("verifier-agent");
-      const agentName =
-        typeof agentNameRaw === "string" && agentNameRaw.length > 0
-          ? agentNameRaw
-          : "verifier";
+      const agentName = agentNameRaw && agentNameRaw !== true ? agentNameRaw : "verifier";
       const agentPath = path.resolve(
         ctx.cwd,
         ".pi/verifier/agents",
@@ -376,14 +373,14 @@ export default function verifiable(pi: ExtensionAPI): void {
       try {
         const personaContent = await fs.readFile(agentPath, "utf8");
         const { frontmatter } = parseVerifierPersona(personaContent);
-        if (typeof frontmatter.max_loops === "number" && frontmatter.max_loops > 0) {
+        if (frontmatter.max_loops !== undefined && frontmatter.max_loops > 0) {
           state.maxLoops = frontmatter.max_loops;
         }
-      } catch (err) {
+      } catch (cause) {
         // Persona is required for spawn; bail loudly via notify AND a
         // sticky system message so the user sees it in scrollback (not
         // just a transient toast).
-        const msg = (err as Error).message ?? String(err);
+        const msg = errMessage(cause);
         safeNotify(ctx, `verifier: failed to read persona at ${agentPath}: ${msg}`, "error");
         surfaceVerifierError(
           [
@@ -433,8 +430,8 @@ export default function verifiable(pi: ExtensionAPI): void {
         });
         state.spawnWrapperPath = spawnResult.wrapperPath;
         state.spawnStderrLogPath = spawnResult.stderrLogPath;
-      } catch (err) {
-        const msg = (err as Error).message ?? String(err);
+      } catch (cause) {
+        const msg = errMessage(cause);
         safeNotify(ctx, `verifier: launcher failed: ${msg}`, "error");
         surfaceVerifierError(
           [
@@ -486,12 +483,12 @@ export default function verifiable(pi: ExtensionAPI): void {
     // listen() doesn't EADDRINUSE.
     try {
       await fs.unlink(state.socketPath);
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+    } catch (cause) {
+      if (!(cause instanceof Error && "code" in cause && cause.code === "ENOENT")) {
         // Permissions or other I/O — surface but keep going; listen()
         // will report the real error if any.
         safeNotify(ctx, 
-          `verifier: failed to unlink stale socket: ${(err as Error).message}`,
+          `verifier: failed to unlink stale socket: ${errMessage(cause)}`,
           "warning",
         );
       }
@@ -543,22 +540,22 @@ export default function verifiable(pi: ExtensionAPI): void {
       for await (const envelope of readEnvelopes(conn)) {
         try {
           assertDirection(envelope, "verifier-to-builder");
-        } catch (err) {
-          safeNotify(ctx, `verifier: dropped envelope (${(err as Error).message})`, "warning");
+        } catch (cause) {
+          safeNotify(ctx, `verifier: dropped envelope (${errMessage(cause)})`, "warning");
           continue;
         }
         try {
           await dispatch(envelope, conn, ctx);
-        } catch (err) {
+        } catch (cause) {
           safeNotify(ctx, 
-            `verifier: dispatch error on ${envelope.type}: ${(err as Error).message}`,
+            `verifier: dispatch error on ${envelope.type}: ${errMessage(cause)}`,
             "warning",
           );
         }
       }
-    } catch (err) {
+    } catch (cause) {
       // Parser errors (bad JSONL) end up here; log and let `close` fire.
-      safeNotify(ctx, `verifier: read loop ended: ${(err as Error).message}`, "warning");
+      safeNotify(ctx, `verifier: read loop ended: ${errMessage(cause)}`, "warning");
     }
   }
 
@@ -666,7 +663,7 @@ export default function verifiable(pi: ExtensionAPI): void {
       pi.sendUserMessage(envelope.message, {
         deliverAs: envelope.deliverAs ?? "followUp",
       });
-    } catch (err) {
+    } catch (cause) {
       // Roll back the flag; the injection failed.
       state.injectedNext = false;
       const ack: PromptAck = {
@@ -674,7 +671,7 @@ export default function verifiable(pi: ExtensionAPI): void {
         sessionId: state.sessionId,
         correlationId: envelope.correlationId,
         ok: false,
-        error: `sendUserMessage failed: ${(err as Error).message}`,
+        error: `sendUserMessage failed: ${errMessage(cause)}`,
       };
       conn.write(encodeEnvelope(ack));
       return;
@@ -964,21 +961,21 @@ export default function verifiable(pi: ExtensionAPI): void {
 
   function installCrashForwarders(): void {
     if (state.uncaughtListener || state.unhandledListener) return;
-    const onUncaught = (err: unknown): void => {
+    const onUncaught = (cause: unknown): void => {
       sendEnvelope({
         type: "event",
         name: "error",
         sessionId: state.sessionId,
-        detail: errMessage(err),
+        detail: errMessage(cause),
         timestamp: Date.now(),
       });
     };
-    const onUnhandled = (reason: unknown): void => {
+    const onUnhandled = (cause: unknown): void => {
       sendEnvelope({
         type: "event",
         name: "error",
         sessionId: state.sessionId,
-        detail: errMessage(reason),
+        detail: errMessage(cause),
         timestamp: Date.now(),
       });
     };
@@ -999,12 +996,12 @@ export default function verifiable(pi: ExtensionAPI): void {
     }
   }
 
-  function reportEventError(err: unknown): void {
+  function reportEventError(cause: unknown): void {
     sendEnvelope({
       type: "event",
       name: "error",
       sessionId: state.sessionId,
-      detail: errMessage(err),
+      detail: errMessage(cause),
       timestamp: Date.now(),
     });
   }
@@ -1100,13 +1097,8 @@ export default function verifiable(pi: ExtensionAPI): void {
     }
   }
 
-  function errMessage(value: unknown): string {
-    if (value instanceof Error) return value.message;
-    if (typeof value === "string") return value;
-    try {
-      return JSON.stringify(value);
-    } catch {
-      return String(value);
-    }
+  function errMessage(cause: unknown): string {
+    if (cause instanceof Error) return cause.message;
+    return JSON.stringify(cause) ?? String(cause);
   }
 }

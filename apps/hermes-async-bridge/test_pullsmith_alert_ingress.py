@@ -204,27 +204,36 @@ class PullsmithAlertIngressTests(unittest.TestCase):
         self.assertEqual(start.call_count, 1)
         self.assertEqual(start.call_args.args[0], self.rows("SELECT task_id FROM tasks")[0]["task_id"])
 
-    def test_retention_cleanup_preserves_tasks_owned_by_accepted_alerts(self):
+    def test_replay_after_terminal_task_retention_returns_the_original_receipt(self):
         with patch.object(hermes_async_bridge.TaskManager, "_start_task_thread"):
             app = self.server().streamable_http_app(host="127.0.0.1")
             with TestClient(app) as client:
-                receipt = client.post("/alerts/pullsmith/v1", headers=auth(), json=alert()).json()
+                first = client.post("/alerts/pullsmith/v1", headers=auth(), json=alert()).json()
 
         conn = sqlite3.connect(self.db_path)
         try:
             conn.execute(
                 "UPDATE tasks SET status='completed', created_at=1, completed_at=2 WHERE task_id=?",
-                (receipt["taskId"],),
+                (first["taskId"],),
             )
             conn.commit()
         finally:
             conn.close()
-
         with patch.object(hermes_async_bridge, "RETENTION_HOURS", 1), patch.object(
             hermes_async_bridge.time, "time", return_value=10_000
         ):
-            self.assertEqual(hermes_async_bridge.TaskManager().cleanup_old(), 0)
-        self.assertEqual(len(self.rows("SELECT * FROM tasks WHERE task_id=?", (receipt["taskId"],))), 1)
+            self.assertEqual(hermes_async_bridge.TaskManager().cleanup_old(), 1)
+
+        with patch.object(hermes_async_bridge.TaskManager, "_start_task_thread") as start:
+            app = self.server().streamable_http_app(host="127.0.0.1")
+            with TestClient(app) as client:
+                replay = client.post("/alerts/pullsmith/v1", headers=auth(), json=alert())
+
+        self.assertEqual(replay.status_code, 202)
+        self.assertEqual(replay.json(), first)
+        self.assertEqual(start.call_count, 0)
+        self.assertEqual(len(self.rows("SELECT * FROM operational_alerts")), 1)
+        self.assertEqual(self.rows("SELECT * FROM tasks"), [])
 
     def test_invalid_and_oversized_envelopes_create_no_tasks_and_do_not_echo_payloads(self):
         secret = "detail-secret-that-must-not-echo"

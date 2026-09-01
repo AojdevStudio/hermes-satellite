@@ -750,14 +750,7 @@ class TaskManager:
         conn = get_db()
         try:
             cursor = conn.execute(
-                """
-                DELETE FROM tasks
-                WHERE created_at < ?
-                  AND status IN ('completed', 'failed', 'cancelled')
-                  AND NOT EXISTS (
-                      SELECT 1 FROM operational_alerts WHERE operational_alerts.task_id = tasks.task_id
-                  )
-                """,
+                "DELETE FROM tasks WHERE created_at < ? AND status IN ('completed', 'failed', 'cancelled')",
                 (cutoff,),
             )
             conn.commit()
@@ -1378,13 +1371,21 @@ def create_mcp_server(*, token: str | None, alert_token: str | None = None, allo
         content_length = request.headers.get("content-length")
         if content_length:
             try:
-                if int(content_length) > MAX_ALERT_BYTES:
+                declared_length = int(content_length)
+                if declared_length < 0:
+                    return JSONResponse({"error": "invalid-alert"}, status_code=400)
+                if declared_length > MAX_ALERT_BYTES:
                     return JSONResponse({"error": "alert-too-large"}, status_code=413)
             except ValueError:
                 return JSONResponse({"error": "invalid-alert"}, status_code=400)
-        body = await request.body()
-        if len(body) > MAX_ALERT_BYTES:
-            return JSONResponse({"error": "alert-too-large"}, status_code=413)
+        chunks: list[bytes] = []
+        received = 0
+        async for chunk in request.stream():
+            received += len(chunk)
+            if received > MAX_ALERT_BYTES:
+                return JSONResponse({"error": "alert-too-large"}, status_code=413)
+            chunks.append(chunk)
+        body = b"".join(chunks)
         try:
             envelope, canonical_payload = parse_pullsmith_alert(body)
         except OverflowError:

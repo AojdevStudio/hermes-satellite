@@ -1,3 +1,4 @@
+import hashlib
 import io
 import json
 import logging
@@ -96,7 +97,8 @@ class PullsmithAlertIngressTests(unittest.TestCase):
         self.assertEqual(receipt["version"], 1)
         self.assertEqual(receipt["id"], alert()["id"])
         self.assertEqual(receipt["transport"], "hermes-async-bridge-alert-v1")
-        self.assertRegex(receipt["taskId"], r"^[0-9a-f]{64}$")
+        expected_task_id = hashlib.sha256(f"pullsmith\0{alert()['id']}".encode()).hexdigest()
+        self.assertEqual(receipt["taskId"], expected_task_id)
         self.assertEqual(saw_committed_rows, [(1, 1)])
 
         task = self.rows("SELECT task_id, prompt, caller FROM tasks")[0]
@@ -112,7 +114,8 @@ class PullsmithAlertIngressTests(unittest.TestCase):
             app = self.server().streamable_http_app(host="127.0.0.1")
             with TestClient(app) as client:
                 first = client.post("/alerts/pullsmith/v1", headers=auth(), json=alert())
-                replay = client.post("/alerts/pullsmith/v1", headers=auth(), json=alert())
+                reordered = dict(reversed(list(alert().items())))
+                replay = client.post("/alerts/pullsmith/v1", headers=auth(), json=reordered)
                 with ThreadPoolExecutor(max_workers=8) as executor:
                     concurrent = list(
                         executor.map(

@@ -131,6 +131,34 @@ class PullsmithAlertIngressTests(unittest.TestCase):
         self.assertEqual(len(self.rows("SELECT * FROM tasks")), 1)
         self.assertEqual(start.call_count, 1)
 
+    def test_replay_does_not_reschedule_after_the_task_becomes_terminal(self):
+        parsed, canonical = hermes_async_bridge.parse_pullsmith_alert(json.dumps(alert()).encode())
+        manager = hermes_async_bridge.TaskManager()
+        starts = []
+
+        with patch.object(manager, "_start_task_thread", side_effect=lambda task_id, *_args: starts.append(task_id)):
+            first = manager.accept_operational_alert(parsed, canonical)
+            real_log_event = hermes_async_bridge.log_event
+
+            def finish_at_replay_boundary(event_type, **kwargs):
+                real_log_event(event_type, **kwargs)
+                if event_type != "alert_replay":
+                    return
+                conn = sqlite3.connect(self.db_path)
+                try:
+                    conn.execute("UPDATE tasks SET status='completed', completed_at=2 WHERE task_id=?", (first["taskId"],))
+                    conn.commit()
+                finally:
+                    conn.close()
+                with manager._lock:
+                    manager._active.discard(first["taskId"])
+
+            with patch.object(hermes_async_bridge, "log_event", side_effect=finish_at_replay_boundary):
+                replay = manager.accept_operational_alert(parsed, canonical)
+
+        self.assertEqual(replay, first)
+        self.assertEqual(starts, [first["taskId"]])
+
     def test_same_id_with_different_payload_is_a_conflict_and_preserves_first_payload(self):
         original = alert()
         changed = alert(message="different message")

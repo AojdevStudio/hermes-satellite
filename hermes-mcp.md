@@ -47,7 +47,8 @@ Main-machine install handoff: [`specs/hermes-mcp-main-machine-install.md`](./spe
 | Hermes skill docs | `~/.hermes/skills/autonomous-ai-agents/hermes-mcp-bridge/SKILL.md` |
 | Skill architecture ref | `~/.hermes/skills/autonomous-ai-agents/hermes-mcp-bridge/references/async-bridge-architecture.md` |
 | Skill’s copy of the script | `~/.hermes/skills/autonomous-ai-agents/hermes-mcp-bridge/scripts/hermes_async_bridge.py` |
-| Runtime token cache | `<local-secret-file>` (`0600`, mirrored to your secrets manager as `HERMES_ASYNC_BRIDGE_TOKEN`) |
+| MCP token cache | `<local-secret-file>` (`0600`, mirrored to your secrets manager as `HERMES_ASYNC_BRIDGE_TOKEN`) |
+| Pullsmith alert token cache | Separate owner-only file (`0600`, mirrored as `HERMES_PULLSMITH_ALERT_TOKEN`) |
 
 **Note:** The active runtime path is the wrapper + symlink to the repo script. The skill-copy script may lag; update the skill docs/scripts after deployment verification.
 
@@ -138,6 +139,33 @@ That’s the right replacement for supergateway + stdio: **one protocol, one ser
 | Active endpoint | `http://100.x.x.x:8081/mcp` |
 | Health endpoint | `http://100.x.x.x:8081/healthz` |
 | Auth | SDK bearer auth configured via `token_verifier` + `AuthSettings`; verified no-token 401 and bearer-token initialize 200 from a separate tailnet client |
+
+`/mcp` remains MCP-only. `/healthz` remains liveness-only and proves neither
+authentication nor alert acceptance.
+
+### Pullsmith operational-alert ingress
+
+The bridge source also supports `POST /alerts/pullsmith/v1`. This route is a
+narrow durable-ingress prerequisite for Pullsmith and is not an MCP endpoint.
+It requires a dedicated `HERMES_PULLSMITH_ALERT_TOKEN`; the general
+`HERMES_ASYNC_BRIDGE_TOKEN` is refused, and the process rejects equal configured
+tokens.
+
+The route accepts only the bounded 64-KiB V1 Pullsmith-to-Hermes envelope.
+First acceptance commits one immutable `operational_alerts` row and one pending
+logical task in the same SQLite transaction. The task id is the full SHA-256 of
+`source + NUL + alert id`. Exact replay returns the original HTTP `202` receipt;
+the same id with a different canonical payload returns `409` without changing
+the original row. Startup recovery reschedules accepted pending work and stale
+running work under that same task id.
+
+The task prompt treats every envelope field as untrusted operational data, not
+instructions or authorization for destructive action. Route errors and logs do
+not echo the bearer or full payload.
+
+Operator rollout must provision the separate token and verify this route from
+an authorized tailnet client before any Pullsmith sender is enabled. A healthy
+`/healthz` response or MCP initialize does not prove the alert route.
 
 **launchd command (today):**
 

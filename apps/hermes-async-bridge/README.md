@@ -12,6 +12,54 @@ This is the canonical repo copy intended to replace the prototype `~/.hermes/scr
 - SQLite state: defaults to `$HERMES_HOME/async_bridge.db`. Inspect it read-only with the `hst` CLI (`scripts/hst.ts` at the repo root): tasks, per-task detail, costs, events, health.
 - Hermes evidence: reads `$HERMES_HOME/state.db` for transcript/cost metadata.
 
+## HTTP boundaries
+
+| Path | Purpose | Authentication |
+|------|---------|----------------|
+| `/mcp` | MCP Streamable HTTP only | `HERMES_ASYNC_BRIDGE_TOKEN` |
+| `/healthz` | Liveness only; it proves neither auth nor task execution | None |
+| `/alerts/pullsmith/v1` | Durable Pullsmith operational-alert acceptance | Dedicated `HERMES_PULLSMITH_ALERT_TOKEN` |
+
+The Pullsmith route does not accept the general MCP bearer. The two configured
+tokens must differ. Authentication is checked before the request body is read
+or parsed, and envelopes are limited to 64 KiB with bounded strings,
+collections, and nesting.
+
+The V1 request is:
+
+```json
+{
+  "version": 1,
+  "id": "storage-alert:archive-unavailable:<digest>",
+  "source": "pullsmith",
+  "audience": "hermes",
+  "kind": "archive-unavailable",
+  "severity": "error",
+  "message": "Evidence archive unavailable",
+  "detail": { "objectCount": 2, "sample": ["sha256:..."] },
+  "raisedAt": "2026-09-01T04:00:00Z"
+}
+```
+
+Successful first acceptance and exact replay both return HTTP `202`:
+
+```json
+{
+  "version": 1,
+  "id": "storage-alert:archive-unavailable:<digest>",
+  "transport": "hermes-async-bridge-alert-v1",
+  "taskId": "<full-sha256>",
+  "acceptedAt": "2026-09-01T04:00:01Z"
+}
+```
+
+Acceptance atomically commits the immutable `operational_alerts` row and its
+pending Hermes task before scheduling work. Exact replay returns the original
+receipt; reuse of an id with a different canonical payload returns HTTP `409`
+with `alert-id-conflict`. Startup reschedules accepted pending tasks and stale
+running tasks under the same deterministic task id. Malformed envelopes return
+`400`, unauthenticated requests `401`, and oversized requests `413`.
+
 ## Tools
 
 - `hermes_submit(prompt, caller?, callback_url?)`
@@ -35,6 +83,7 @@ cd hermes-satellite
 
 export HERMES_HOME=~/.hermes
 export HERMES_ASYNC_BRIDGE_TOKEN='<shared bearer token>'
+export HERMES_PULLSMITH_ALERT_TOKEN='<different-alert-only-token>'
 export HERMES_ASYNC_BRIDGE_HOST=100.x.x.x
 export HERMES_ASYNC_BRIDGE_PORT=8081
 ~/.hermes/hermes-agent/venv/bin/python3 \
@@ -45,9 +94,10 @@ The legacy `supergateway` command should be removed once launchd points directly
 
 ## Deployment shape
 
-Generate the bearer token once from the OS CSPRNG. Do not print it in logs,
-commit it, or put it directly in the plist. Your secrets manager is canonical; the local file is
-only the runtime cache.
+Generate each bearer token once from the OS CSPRNG. Keep the MCP and Pullsmith
+alert tokens distinct. Do not print either token in logs, commit it, or put it
+directly in the plist. Your secrets manager is canonical; local files are only
+runtime caches.
 
 Deployment checklist:
 
@@ -58,7 +108,8 @@ Deployment checklist:
    `HERMES_ASYNC_BRIDGE_TOKEN`, under the appropriate machine/agent secrets
    project.
 4. Use a wrapper script outside the repo to read the token file, export
-   `HERMES_ASYNC_BRIDGE_TOKEN`, and exec the repo bridge.
+   `HERMES_ASYNC_BRIDGE_TOKEN` and the separately stored
+   `HERMES_PULLSMITH_ALERT_TOKEN`, then exec the repo bridge.
 5. Cut transport over at the same time: while `supergateway` is still in front,
    setting `HERMES_ASYNC_BRIDGE_TOKEN` does not protect HTTP because the Python
    script only sees stdio. Auth is real only after native MCP HTTP is the

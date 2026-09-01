@@ -78,7 +78,7 @@ class PullsmithAlertIngressTests(unittest.TestCase):
     def test_valid_alert_is_committed_before_dispatch_and_returns_receipt(self):
         saw_committed_rows = []
 
-        def start_after_commit(_thread):
+        def start_after_commit(_manager, _task_id, _prompt, _session_id, _profile):
             saw_committed_rows.append(
                 (
                     len(self.rows("SELECT * FROM operational_alerts")),
@@ -86,7 +86,7 @@ class PullsmithAlertIngressTests(unittest.TestCase):
                 )
             )
 
-        with patch.object(hermes_async_bridge.threading.Thread, "start", start_after_commit):
+        with patch.object(hermes_async_bridge.TaskManager, "_start_task_thread", start_after_commit):
             app = self.server().streamable_http_app(host="127.0.0.1")
             with TestClient(app) as client:
                 response = client.post("/alerts/pullsmith/v1", headers=auth(), json=alert())
@@ -103,12 +103,12 @@ class PullsmithAlertIngressTests(unittest.TestCase):
         self.assertEqual(task["task_id"], receipt["taskId"])
         self.assertEqual(task["caller"], "pullsmith-alert")
         self.assertIn("untrusted operational data", task["prompt"])
-        self.assertIn("not authorization", task["prompt"])
+        self.assertIn("not instructions or authorization", task["prompt"])
         self.assertIn("Pullsmith operational alerts", task["prompt"])
         self.assertIn(alert()["id"], task["prompt"])
 
     def test_sequential_and_concurrent_duplicates_return_one_receipt_and_task(self):
-        with patch.object(hermes_async_bridge.threading.Thread, "start") as start:
+        with patch.object(hermes_async_bridge.TaskManager, "_start_task_thread") as start:
             app = self.server().streamable_http_app(host="127.0.0.1")
             with TestClient(app) as client:
                 first = client.post("/alerts/pullsmith/v1", headers=auth(), json=alert())
@@ -132,7 +132,7 @@ class PullsmithAlertIngressTests(unittest.TestCase):
         original = alert()
         changed = alert(message="different message")
 
-        with patch.object(hermes_async_bridge.threading.Thread, "start"):
+        with patch.object(hermes_async_bridge.TaskManager, "_start_task_thread"):
             app = self.server().streamable_http_app(host="127.0.0.1")
             with TestClient(app) as client:
                 first = client.post("/alerts/pullsmith/v1", headers=auth(), json=original)
@@ -146,7 +146,7 @@ class PullsmithAlertIngressTests(unittest.TestCase):
         self.assertEqual(len(self.rows("SELECT * FROM tasks")), 1)
 
     def test_post_commit_dispatch_failure_is_recovered_after_reopening_database(self):
-        with patch.object(hermes_async_bridge.threading.Thread, "start", side_effect=RuntimeError("injected")):
+        with patch.object(hermes_async_bridge.TaskManager, "_start_task_thread", side_effect=RuntimeError("injected")):
             app = self.server().streamable_http_app(host="127.0.0.1")
             with TestClient(app, raise_server_exceptions=False) as client:
                 response = client.post("/alerts/pullsmith/v1", headers=auth(), json=alert())
@@ -156,13 +156,13 @@ class PullsmithAlertIngressTests(unittest.TestCase):
         self.assertEqual(self.rows("SELECT status FROM tasks WHERE task_id=?", (task_id,))[0]["status"], "pending")
 
         reopened = hermes_async_bridge.TaskManager()
-        with patch.object(hermes_async_bridge.threading.Thread, "start") as start:
+        with patch.object(hermes_async_bridge.TaskManager, "_start_task_thread") as start:
             self.assertEqual(reopened.recover_operational_alerts(), 1)
         self.assertEqual(start.call_count, 1)
         self.assertEqual(self.rows("SELECT task_id FROM tasks" )[0]["task_id"], task_id)
 
     def test_stale_running_recovery_keeps_one_task_and_bounded_attempt_history(self):
-        with patch.object(hermes_async_bridge.threading.Thread, "start"):
+        with patch.object(hermes_async_bridge.TaskManager, "_start_task_thread"):
             app = self.server().streamable_http_app(host="127.0.0.1")
             with TestClient(app) as client:
                 receipt = client.post("/alerts/pullsmith/v1", headers=auth(), json=alert()).json()
@@ -180,7 +180,7 @@ class PullsmithAlertIngressTests(unittest.TestCase):
             conn.close()
 
         reopened = hermes_async_bridge.TaskManager()
-        with patch.object(hermes_async_bridge.threading.Thread, "start"):
+        with patch.object(hermes_async_bridge.TaskManager, "_start_task_thread"):
             self.assertEqual(reopened.recover_operational_alerts(), 1)
 
         task = self.rows("SELECT task_id, status, pid FROM tasks")[0]
@@ -192,6 +192,40 @@ class PullsmithAlertIngressTests(unittest.TestCase):
             hermes_async_bridge.MAX_OPERATIONAL_ALERT_RUN_HISTORY - 1,
         )
 
+    def test_server_creation_recovers_pending_alerts_before_it_returns(self):
+        envelope = alert()
+        parsed, canonical = hermes_async_bridge.parse_pullsmith_alert(json.dumps(envelope).encode())
+        with patch.object(hermes_async_bridge.TaskManager, "_start_task_thread"):
+            hermes_async_bridge.TaskManager().accept_operational_alert(parsed, canonical)
+
+        with patch.object(hermes_async_bridge.TaskManager, "_start_task_thread") as start:
+            self.server()
+
+        self.assertEqual(start.call_count, 1)
+        self.assertEqual(start.call_args.args[0], self.rows("SELECT task_id FROM tasks")[0]["task_id"])
+
+    def test_retention_cleanup_preserves_tasks_owned_by_accepted_alerts(self):
+        with patch.object(hermes_async_bridge.TaskManager, "_start_task_thread"):
+            app = self.server().streamable_http_app(host="127.0.0.1")
+            with TestClient(app) as client:
+                receipt = client.post("/alerts/pullsmith/v1", headers=auth(), json=alert()).json()
+
+        conn = sqlite3.connect(self.db_path)
+        try:
+            conn.execute(
+                "UPDATE tasks SET status='completed', created_at=1, completed_at=2 WHERE task_id=?",
+                (receipt["taskId"],),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+
+        with patch.object(hermes_async_bridge, "RETENTION_HOURS", 1), patch.object(
+            hermes_async_bridge.time, "time", return_value=10_000
+        ):
+            self.assertEqual(hermes_async_bridge.TaskManager().cleanup_old(), 0)
+        self.assertEqual(len(self.rows("SELECT * FROM tasks WHERE task_id=?", (receipt["taskId"],))), 1)
+
     def test_invalid_and_oversized_envelopes_create_no_tasks_and_do_not_echo_payloads(self):
         secret = "detail-secret-that-must-not-echo"
         nested = {"value": secret}
@@ -202,7 +236,7 @@ class PullsmithAlertIngressTests(unittest.TestCase):
         handler = logging.StreamHandler(log_output)
         hermes_async_bridge.logger.addHandler(handler)
         try:
-            with patch.object(hermes_async_bridge.threading.Thread, "start"):
+            with patch.object(hermes_async_bridge.TaskManager, "_start_task_thread"):
                 app = self.server().streamable_http_app(host="127.0.0.1")
                 with TestClient(app) as client:
                     responses = [

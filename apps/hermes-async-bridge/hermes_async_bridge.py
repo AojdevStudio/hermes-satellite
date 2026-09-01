@@ -413,6 +413,13 @@ class TaskManager:
         with self._lock:
             if task_id in self._active:
                 return False
+            conn = get_db()
+            try:
+                row = conn.execute("SELECT status FROM tasks WHERE task_id=?", (task_id,)).fetchone()
+            finally:
+                conn.close()
+            if not row or row["status"] != "pending":
+                return False
             self._active.add(task_id)
         try:
             self._start_task_thread(task_id, prompt, session_id, profile)
@@ -489,7 +496,6 @@ class TaskManager:
         accepted_at = time.time()
         prompt = operational_alert_prompt(alert_id, canonical_payload)
         created = False
-        status = "pending"
 
         conn = get_db()
         try:
@@ -507,12 +513,9 @@ class TaskManager:
                     raise AlertIdConflict(alert_id)
                 task_id = str(existing["task_id"])
                 accepted_at = float(existing["accepted_at"])
-                task = conn.execute("SELECT status, prompt FROM tasks WHERE task_id=?", (task_id,)).fetchone()
+                task = conn.execute("SELECT prompt FROM tasks WHERE task_id=?", (task_id,)).fetchone()
                 if task:
-                    status = str(task["status"])
                     prompt = str(task["prompt"])
-                else:
-                    status = "retained-receipt"
             else:
                 conn.execute(
                     """
@@ -540,8 +543,7 @@ class TaskManager:
             conn.close()
 
         log_event("alert_accepted" if created else "alert_replay", task_id=task_id, caller="pullsmith", payload={"alert_id": alert_id})
-        if status == "pending":
-            self._schedule_task(task_id, prompt)
+        self._schedule_task(task_id, prompt)
         return {
             "version": 1,
             "id": alert_id,
